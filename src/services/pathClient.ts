@@ -55,6 +55,7 @@ export interface PathResult {
 
 export interface PollOptions {
   sessionId: string;
+  correlationId: string; // Preserve from initial request
   maxRetries?: number;
   baseDelay?: number;
   maxDelay?: number;
@@ -68,7 +69,7 @@ const DEFAULT_MAX_RETRIES = 5;
 
 export class PathClient {
   private config: PathConfig;
-  private pollTimer: NodeJS.Timeout | null = null;
+  private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private pollRetryCount: number = 0;
 
   constructor(config: PathConfig) {
@@ -185,6 +186,7 @@ export class PathClient {
       return {
         ok: true,
         sessionId: data.sessionId,
+        correlationId: data.correlationId,
         status: data.status,
         transcript: data.transcript,
       };
@@ -203,6 +205,7 @@ export class PathClient {
   startPolling(options: PollOptions): void {
     const {
       sessionId,
+      correlationId,
       maxRetries = DEFAULT_MAX_RETRIES,
       baseDelay = DEFAULT_BASE_DELAY,
       maxDelay = DEFAULT_MAX_DELAY,
@@ -215,7 +218,7 @@ export class PathClient {
 
     const queueNextPoll = (delay: number = baseDelay): void => {
       this.pollTimer = setTimeout(() => {
-        this.pollOnce(sessionId)
+        this.pollOnce(sessionId, correlationId)
           .then((result) => {
             if (!result.ok) {
               this.pollRetryCount += 1;
@@ -263,9 +266,11 @@ export class PathClient {
 
   /**
    * Single poll operation
+   * Preserves the original correlationId from the initial request
    */
   private async pollOnce(
-    sessionId: string
+    sessionId: string,
+    correlationId: string
   ): Promise<PathSessionResponse | PathResult> {
     const result = await this.readSession(sessionId);
     if (!result.ok) {
@@ -273,7 +278,7 @@ export class PathClient {
     }
     return {
       sessionId,
-      correlationId: "", // Preserved from initial response
+      correlationId, // Preserve the original correlation ID
       status: result.status,
       transcript: result.transcript || [],
       calls: 0,
