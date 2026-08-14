@@ -13,6 +13,7 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
+    "check": "tsc --noEmit",
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",

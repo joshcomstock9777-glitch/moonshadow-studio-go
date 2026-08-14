@@ -5,7 +5,7 @@
  * Single source of truth for session state during a Path request
  */
 
-import { PathClient, PathSessionResponse, PathEntry } from './pathClient';
+import { PathClient, PathSessionResponse, PathEntry, PathTarget } from './pathClient';
 import { loadPathConfig } from './pathConfig';
 
 export interface PathMessageSession {
@@ -39,13 +39,19 @@ export class PathMessageHandler {
     this.onSessionUpdate = callback;
   }
 
+  clearOnSessionUpdate(callback: (session: PathMessageSession) => void): void {
+    if (this.onSessionUpdate === callback) {
+      this.onSessionUpdate = null;
+    }
+  }
+
   /**
    * Send a message to a target (Allie, Amber, Josh) and start tracking the session
    * Returns false if a send is already in progress
    */
-  async sendMessage(target: string, message: string): Promise<PathMessageSession | { error: string }> {
+  async sendMessage(target: PathTarget, message: string): Promise<PathMessageSession | { error: string }> {
     // Block duplicate sends while one is active
-    if (this.isSendingRef) {
+    if (this.isSendingRef || this.currentSession?.isActive) {
       return { error: 'A request is already in progress' };
     }
 
@@ -90,14 +96,14 @@ export class PathMessageHandler {
    * Send a message to Allie specifically
    */
   async sendToAllie(message: string): Promise<PathMessageSession | { error: string }> {
-    return this.sendMessage('Allie', message);
+    return this.sendMessage('allie', message);
   }
 
   /**
    * Send a message to Amber specifically
    */
   async sendToAmber(message: string): Promise<PathMessageSession | { error: string }> {
-    return this.sendMessage('Amber', message);
+    return this.sendMessage('amber', message);
   }
 
   private startPolling(): void {
