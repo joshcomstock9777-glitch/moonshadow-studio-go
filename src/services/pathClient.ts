@@ -18,9 +18,11 @@ export interface PathConfig {
 }
 
 export interface PathRequestPayload {
-  target: "Amber" | "Allie" | "Josh" | string;
+  target: PathTarget;
   message: string;
 }
+
+export type PathTarget = "allie" | "amber";
 
 export interface PathSessionResponse {
   sessionId: string;
@@ -50,6 +52,8 @@ export interface PathResult {
   correlationId?: string;
   status?: "open" | "final" | "error";
   transcript?: PathEntry[];
+  calls?: number;
+  stateVersion?: number;
   error?: string;
 }
 
@@ -90,7 +94,7 @@ export class PathClient {
   /**
    * Create a new session and send initial request to Path
    */
-  async sendRequest(target: string, message: string): Promise<PathResult> {
+  async sendRequest(target: PathTarget, message: string): Promise<PathResult> {
     try {
       const payload: PathRequestPayload = {
         target,
@@ -132,6 +136,8 @@ export class PathClient {
         correlationId: data.correlationId,
         status: data.status,
         transcript: data.transcript,
+        calls: data.calls,
+        stateVersion: data.stateVersion,
       };
     } catch (error) {
       return {
@@ -189,6 +195,8 @@ export class PathClient {
         correlationId: data.correlationId,
         status: data.status,
         transcript: data.transcript,
+        calls: data.calls,
+        stateVersion: data.stateVersion,
       };
     } catch (error) {
       return {
@@ -236,7 +244,16 @@ export class PathClient {
 
             // Reset retry count on successful poll
             this.pollRetryCount = 0;
-            onUpdate?.(result as PathSessionResponse);
+            const session: PathSessionResponse = {
+              sessionId,
+              correlationId,
+              status: result.status || "open",
+              transcript: result.transcript || [],
+              calls: result.calls || 0,
+              stateVersion: result.stateVersion || 0,
+              error: result.error,
+            };
+            onUpdate?.(session);
 
             // Stop if terminal state
             if (result.status === "final" || result.status === "error") {
@@ -271,19 +288,20 @@ export class PathClient {
   private async pollOnce(
     sessionId: string,
     correlationId: string
-  ): Promise<PathSessionResponse | PathResult> {
+  ): Promise<PathResult> {
     const result = await this.readSession(sessionId);
     if (!result.ok) {
       return result;
     }
     return {
+      ok: true,
       sessionId,
       correlationId, // Preserve the original correlation ID
       status: result.status,
       transcript: result.transcript || [],
-      calls: 0,
-      stateVersion: 0,
-    } as PathSessionResponse;
+      calls: result.calls,
+      stateVersion: result.stateVersion,
+    };
   }
 
   /**
@@ -313,7 +331,7 @@ export class PathClient {
       brainUpdated ? "YES" : "NO"
     }`;
 
-    return this.sendRequest("Amber", checkpointMessage.slice(0, 1600));
+    return this.sendRequest("amber", checkpointMessage.slice(0, 1600));
   }
 }
 
