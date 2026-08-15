@@ -5,8 +5,8 @@
  * Studio Go communicates with Path/Allie/Amber through this client.
  * 
  * This is a client-side adapter that:
- * - Creates sessions (POST /sessions)
- * - Polls for updates (GET /sessions/:sessionId)
+ * - Creates sessions (POST /api/sessions)
+ * - Polls for updates (GET /api/sessions/:sessionId)
  * - Manages correlation IDs and session state
  * - Implements polling backoff strategy
  * - Does NOT write to Brain directly
@@ -63,6 +63,7 @@ export interface PollOptions {
   maxRetries?: number;
   baseDelay?: number;
   maxDelay?: number;
+  timeoutMs?: number;
   onUpdate?: (session: PathSessionResponse) => void;
   onError?: (error: Error) => void;
 }
@@ -70,6 +71,30 @@ export interface PollOptions {
 const DEFAULT_BASE_DELAY = 2000;
 const DEFAULT_MAX_DELAY = 30000;
 const DEFAULT_MAX_RETRIES = 5;
+const DEFAULT_TIMEOUT_MS = 120000;
+
+export function buildPathUrl(apiBaseUrl: string, pathname: string): string {
+  const base = apiBaseUrl.replace(/\/+$/, "");
+  const apiBase = base.endsWith("/api") ? base : `${base}/api`;
+  const path = pathname.replace(/^\/+/, "");
+  return `${apiBase}/${path}`;
+}
+
+export function mapPathSessionResponse(
+  data: Partial<PathSessionResponse>,
+  preserved?: { sessionId?: string; correlationId?: string }
+): PathResult {
+  return {
+    ok: true,
+    sessionId: data.sessionId || preserved?.sessionId,
+    correlationId: data.correlationId || preserved?.correlationId,
+    status: data.status,
+    transcript: data.transcript,
+    calls: data.calls,
+    stateVersion: data.stateVersion,
+    error: data.error,
+  };
+}
 
 export class PathClient {
   private config: PathConfig;
@@ -85,10 +110,16 @@ export class PathClient {
     if (!this.config.apiBaseUrl || !this.config.apiBaseUrl.trim()) {
       throw new Error("Path API base URL is not configured");
     }
+    try {
+      const url = new URL(this.config.apiBaseUrl);
+      if (url.protocol !== "https:") throw new Error("HTTPS_REQUIRED");
+    } catch {
+      throw new Error("Path API base URL is invalid or is not HTTPS");
+    }
   }
 
   private pathUrl(pathname: string): string {
-    return new URL(pathname, this.config.apiBaseUrl).toString();
+    return buildPathUrl(this.config.apiBaseUrl, pathname);
   }
 
   /**
@@ -130,15 +161,7 @@ export class PathClient {
         };
       }
 
-      return {
-        ok: true,
-        sessionId: data.sessionId,
-        correlationId: data.correlationId,
-        status: data.status,
-        transcript: data.transcript,
-        calls: data.calls,
-        stateVersion: data.stateVersion,
-      };
+      return mapPathSessionResponse(data);
     } catch (error) {
       return {
         ok: false,
@@ -189,15 +212,7 @@ export class PathClient {
         };
       }
 
-      return {
-        ok: true,
-        sessionId: data.sessionId,
-        correlationId: data.correlationId,
-        status: data.status,
-        transcript: data.transcript,
-        calls: data.calls,
-        stateVersion: data.stateVersion,
-      };
+      return mapPathSessionResponse(data);
     } catch (error) {
       return {
         ok: false,
@@ -217,15 +232,22 @@ export class PathClient {
       maxRetries = DEFAULT_MAX_RETRIES,
       baseDelay = DEFAULT_BASE_DELAY,
       maxDelay = DEFAULT_MAX_DELAY,
+      timeoutMs = DEFAULT_TIMEOUT_MS,
       onUpdate,
       onError,
     } = options;
 
     this.stopPolling();
     this.pollRetryCount = 0;
+    const startedAt = Date.now();
 
     const queueNextPoll = (delay: number = baseDelay): void => {
       this.pollTimer = setTimeout(() => {
+        this.pollTimer = null;
+        if (Date.now() - startedAt >= timeoutMs) {
+          onError?.(new Error("Path polling timed out"));
+          return;
+        }
         this.pollOnce(sessionId, correlationId)
           .then((result) => {
             if (!result.ok) {
@@ -293,6 +315,12 @@ export class PathClient {
     if (!result.ok) {
       return result;
     }
+    if (result.correlationId && result.correlationId !== correlationId) {
+      return {
+        ok: false,
+        error: "Path returned a mismatched correlation ID",
+      };
+    }
     return {
       ok: true,
       sessionId,
@@ -301,6 +329,7 @@ export class PathClient {
       transcript: result.transcript || [],
       calls: result.calls,
       stateVersion: result.stateVersion,
+      error: result.error,
     };
   }
 
