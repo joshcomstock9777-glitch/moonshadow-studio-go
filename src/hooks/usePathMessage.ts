@@ -37,6 +37,7 @@ export function usePathMessage(): UsePathMessageResult {
     const onUpdate = (updatedSession: PathMessageSession) => {
       setSession({ ...updatedSession });
       setIsLoading(updatedSession.isActive);
+      setError(updatedSession.error || null);
     };
 
     try {
@@ -59,6 +60,7 @@ export function usePathMessage(): UsePathMessageResult {
     return () => {
       if (handlerRef.current) {
         handlerRef.current.clearOnSessionUpdate(onUpdate);
+        handlerRef.current.cleanup();
       }
     };
   }, []);
