@@ -15,6 +15,7 @@
 
 export interface PathConfig {
   apiBaseUrl: string;
+  runtime?: "web" | "native";
 }
 
 export interface PathRequestPayload {
@@ -63,6 +64,7 @@ export interface PollOptions {
   maxRetries?: number;
   baseDelay?: number;
   maxDelay?: number;
+  timeoutMs?: number;
   onUpdate?: (session: PathSessionResponse) => void;
   onError?: (error: Error) => void;
 }
@@ -70,6 +72,7 @@ export interface PollOptions {
 const DEFAULT_BASE_DELAY = 2000;
 const DEFAULT_MAX_DELAY = 30000;
 const DEFAULT_MAX_RETRIES = 5;
+const DEFAULT_TIMEOUT_MS = 120000;
 
 export class PathClient {
   private config: PathConfig;
@@ -85,10 +88,34 @@ export class PathClient {
     if (!this.config.apiBaseUrl || !this.config.apiBaseUrl.trim()) {
       throw new Error("Path API base URL is not configured");
     }
+    try {
+      const url = new URL(this.config.apiBaseUrl);
+      if (url.protocol !== "https:") throw new Error("HTTPS_REQUIRED");
+    } catch {
+      throw new Error("Path API base URL is invalid or is not HTTPS");
+    }
   }
 
   private pathUrl(pathname: string): string {
-    return new URL(pathname, this.config.apiBaseUrl).toString();
+    const base = this.config.apiBaseUrl.replace(/\/+$/, "");
+    const apiBase = base.endsWith("/api") ? base : `${base}/api`;
+    const path = pathname.replace(/^\/+/, "");
+    return `${apiBase}/${path}`;
+  }
+
+  private requestHeaders(headers: Record<string, string>): Record<string, string> {
+    // Browser fetch owns the forbidden Origin header. React Native's native
+    // networking stack has no page origin, so provide the API origin explicitly.
+    const detectedNative =
+      typeof navigator !== "undefined" && navigator.product === "ReactNative";
+    const isNative = this.config.runtime
+      ? this.config.runtime === "native"
+      : detectedNative;
+    if (!isNative) return headers;
+    return {
+      ...headers,
+      origin: new URL(this.config.apiBaseUrl).origin,
+    };
   }
 
   /**
@@ -103,7 +130,7 @@ export class PathClient {
 
       const response = await fetch(this.pathUrl("/sessions"), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: this.requestHeaders({ "content-type": "application/json" }),
         body: JSON.stringify(payload),
       });
 
@@ -155,7 +182,7 @@ export class PathClient {
       const response = await fetch(
         this.pathUrl(`/sessions/${encodeURIComponent(sessionId)}`),
         {
-          headers: { accept: "application/json" },
+          headers: this.requestHeaders({ accept: "application/json" }),
         }
       );
 
@@ -217,15 +244,22 @@ export class PathClient {
       maxRetries = DEFAULT_MAX_RETRIES,
       baseDelay = DEFAULT_BASE_DELAY,
       maxDelay = DEFAULT_MAX_DELAY,
+      timeoutMs = DEFAULT_TIMEOUT_MS,
       onUpdate,
       onError,
     } = options;
 
     this.stopPolling();
     this.pollRetryCount = 0;
+    const startedAt = Date.now();
 
     const queueNextPoll = (delay: number = baseDelay): void => {
       this.pollTimer = setTimeout(() => {
+        this.pollTimer = null;
+        if (Date.now() - startedAt >= timeoutMs) {
+          onError?.(new Error("Path polling timed out"));
+          return;
+        }
         this.pollOnce(sessionId, correlationId)
           .then((result) => {
             if (!result.ok) {
@@ -293,6 +327,12 @@ export class PathClient {
     if (!result.ok) {
       return result;
     }
+    if (result.correlationId && result.correlationId !== correlationId) {
+      return {
+        ok: false,
+        error: "Path returned a mismatched correlation ID",
+      };
+    }
     return {
       ok: true,
       sessionId,
@@ -301,6 +341,7 @@ export class PathClient {
       transcript: result.transcript || [],
       calls: result.calls,
       stateVersion: result.stateVersion,
+      error: result.error,
     };
   }
 
