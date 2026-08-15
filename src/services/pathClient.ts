@@ -5,8 +5,8 @@
  * Studio Go communicates with Path/Allie/Amber through this client.
  * 
  * This is a client-side adapter that:
- * - Creates sessions (POST /sessions)
- * - Polls for updates (GET /sessions/:sessionId)
+ * - Creates sessions (POST /api/sessions)
+ * - Polls for updates (GET /api/sessions/:sessionId)
  * - Manages correlation IDs and session state
  * - Implements polling backoff strategy
  * - Does NOT write to Brain directly
@@ -15,7 +15,6 @@
 
 export interface PathConfig {
   apiBaseUrl: string;
-  runtime?: "web" | "native";
 }
 
 export interface PathRequestPayload {
@@ -74,6 +73,29 @@ const DEFAULT_MAX_DELAY = 30000;
 const DEFAULT_MAX_RETRIES = 5;
 const DEFAULT_TIMEOUT_MS = 120000;
 
+export function buildPathUrl(apiBaseUrl: string, pathname: string): string {
+  const base = apiBaseUrl.replace(/\/+$/, "");
+  const apiBase = base.endsWith("/api") ? base : `${base}/api`;
+  const path = pathname.replace(/^\/+/, "");
+  return `${apiBase}/${path}`;
+}
+
+export function mapPathSessionResponse(
+  data: Partial<PathSessionResponse>,
+  preserved?: { sessionId?: string; correlationId?: string }
+): PathResult {
+  return {
+    ok: true,
+    sessionId: data.sessionId || preserved?.sessionId,
+    correlationId: data.correlationId || preserved?.correlationId,
+    status: data.status,
+    transcript: data.transcript,
+    calls: data.calls,
+    stateVersion: data.stateVersion,
+    error: data.error,
+  };
+}
+
 export class PathClient {
   private config: PathConfig;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -97,25 +119,7 @@ export class PathClient {
   }
 
   private pathUrl(pathname: string): string {
-    const base = this.config.apiBaseUrl.replace(/\/+$/, "");
-    const apiBase = base.endsWith("/api") ? base : `${base}/api`;
-    const path = pathname.replace(/^\/+/, "");
-    return `${apiBase}/${path}`;
-  }
-
-  private requestHeaders(headers: Record<string, string>): Record<string, string> {
-    // Browser fetch owns the forbidden Origin header. React Native's native
-    // networking stack has no page origin, so provide the API origin explicitly.
-    const detectedNative =
-      typeof navigator !== "undefined" && navigator.product === "ReactNative";
-    const isNative = this.config.runtime
-      ? this.config.runtime === "native"
-      : detectedNative;
-    if (!isNative) return headers;
-    return {
-      ...headers,
-      origin: new URL(this.config.apiBaseUrl).origin,
-    };
+    return buildPathUrl(this.config.apiBaseUrl, pathname);
   }
 
   /**
@@ -130,7 +134,7 @@ export class PathClient {
 
       const response = await fetch(this.pathUrl("/sessions"), {
         method: "POST",
-        headers: this.requestHeaders({ "content-type": "application/json" }),
+        headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
 
@@ -157,15 +161,7 @@ export class PathClient {
         };
       }
 
-      return {
-        ok: true,
-        sessionId: data.sessionId,
-        correlationId: data.correlationId,
-        status: data.status,
-        transcript: data.transcript,
-        calls: data.calls,
-        stateVersion: data.stateVersion,
-      };
+      return mapPathSessionResponse(data);
     } catch (error) {
       return {
         ok: false,
@@ -182,7 +178,7 @@ export class PathClient {
       const response = await fetch(
         this.pathUrl(`/sessions/${encodeURIComponent(sessionId)}`),
         {
-          headers: this.requestHeaders({ accept: "application/json" }),
+          headers: { accept: "application/json" },
         }
       );
 
@@ -216,15 +212,7 @@ export class PathClient {
         };
       }
 
-      return {
-        ok: true,
-        sessionId: data.sessionId,
-        correlationId: data.correlationId,
-        status: data.status,
-        transcript: data.transcript,
-        calls: data.calls,
-        stateVersion: data.stateVersion,
-      };
+      return mapPathSessionResponse(data);
     } catch (error) {
       return {
         ok: false,
