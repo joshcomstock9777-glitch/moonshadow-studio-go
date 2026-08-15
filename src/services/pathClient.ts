@@ -88,7 +88,9 @@ export class PathClient {
   }
 
   private pathUrl(pathname: string): string {
-    return new URL(pathname, this.config.apiBaseUrl).toString();
+    const base = this.config.apiBaseUrl.replace(/\/+$/, "");
+    const path = pathname.replace(/^\/+/, "");
+    return `${base}/${path}`;
   }
 
   /**
@@ -293,6 +295,12 @@ export class PathClient {
     if (!result.ok) {
       return result;
     }
+    if (result.correlationId && result.correlationId !== correlationId) {
+      return {
+        ok: false,
+        error: "Path returned a mismatched correlation ID",
+      };
+    }
     return {
       ok: true,
       sessionId,
@@ -301,6 +309,7 @@ export class PathClient {
       transcript: result.transcript || [],
       calls: result.calls,
       stateVersion: result.stateVersion,
+      error: result.error,
     };
   }
 
