@@ -14,6 +14,8 @@ export interface PathMessageSession {
   isActive: boolean;
   transcript: PathEntry[];
   status: 'open' | 'final' | 'error';
+  calls: number;
+  stateVersion: number;
   error?: string;
   createdAt: number;
 }
@@ -28,8 +30,7 @@ export class PathMessageHandler {
     const config = loadPathConfig();
     if (!config.apiBaseUrl || !config.apiBaseUrl.trim()) {
       throw new Error(
-        'Path API base URL not configured. Set REACT_APP_PATH_API_URL, ' +
-        'EXPO_PUBLIC_PATH_API_URL, or inject window.__PATH_CONFIG__.apiBaseUrl'
+        'Path API base URL not configured. Set EXPO_PUBLIC_PATH_API_URL.'
       );
     }
     this.client = new PathClient(config);
@@ -76,6 +77,8 @@ export class PathMessageHandler {
         isActive: result.status === 'open',
         transcript: result.transcript || [],
         status: result.status || 'open',
+        calls: result.calls || 0,
+        stateVersion: result.stateVersion || 0,
         createdAt: Date.now(),
       };
 
@@ -118,6 +121,9 @@ export class PathMessageHandler {
         // Update transcript with new entries
         this.currentSession.transcript = session.transcript || [];
         this.currentSession.status = session.status || 'open';
+        this.currentSession.calls = session.calls || 0;
+        this.currentSession.stateVersion = session.stateVersion || 0;
+        this.currentSession.error = session.error;
 
         // Mark inactive when terminal state reached
         if (session.status === 'final' || session.status === 'error') {
