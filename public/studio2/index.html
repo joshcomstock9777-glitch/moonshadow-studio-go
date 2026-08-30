@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Moonshadow Studio #2</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin:0; height:100vh; background:#0d0f12; color:#e2e8f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; flex-direction:column; }
+    header, footer { background:#11141a; border-color:#232936; }
+    header { height:56px; border-bottom:1px solid #232936; display:flex; align-items:center; justify-content:space-between; padding:0 20px; gap:16px; }
+    footer { border-top:1px solid #232936; padding:14px; }
+    .title { font-weight:700; font-size:14px; letter-spacing:.08em; text-transform:uppercase; }
+    .sub { color:#7c8799; font:12px ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .pill { display:flex; align-items:center; gap:8px; background:#1d2430; border-radius:999px; padding:7px 11px; font:12px ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .dot { width:8px; height:8px; border-radius:50%; background:#6b7280; }
+    .dot.busy { background:#eab308; }
+    .dot.done { background:#22c55e; }
+    .dot.error { background:#ef4444; }
+    main { flex:1; min-height:0; display:grid; grid-template-columns:1fr 1fr; gap:14px; padding:14px; }
+    .card { background:#161a22; border:1px solid #232936; border-radius:10px; display:flex; flex-direction:column; min-height:0; padding:14px; }
+    .card-title { color:#9ca3af; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; border-bottom:1px solid #232936; padding-bottom:10px; margin-bottom:10px; display:flex; justify-content:space-between; }
+    .pane { flex:1; overflow:auto; white-space:pre-wrap; }
+    #logs { font:12px ui-monospace,SFMono-Regular,Menlo,monospace; color:#9ca3af; }
+    #output { font-size:14px; line-height:1.55; }
+    .composer { max-width:900px; margin:0 auto; display:flex; gap:10px; }
+    input { flex:1; background:#1a1f2c; color:#fff; border:1px solid #374151; border-radius:9px; padding:13px 14px; font-size:14px; outline:none; }
+    input:focus { border-color:#6366f1; }
+    button { border:0; border-radius:9px; cursor:pointer; }
+    #send { background:#4f46e5; color:white; font-weight:700; padding:0 22px; }
+    #clear { background:transparent; color:#7c8799; font-size:10px; text-transform:uppercase; }
+    @media (max-width: 760px) { main { grid-template-columns:1fr; } .sub { display:none; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="title">Moonshadow Studio #2</div>
+      <div class="sub">Isolated route /studio2 · Moonshadow Path</div>
+    </div>
+    <div class="pill"><span id="dot" class="dot"></span><span id="status">IDLE</span></div>
+  </header>
+
+  <main>
+    <section class="card">
+      <div class="card-title">Execution & Poll Logs</div>
+      <div id="logs" class="pane">// Target: moonshadow-path-proof.vercel.app\n// Contract: POST /api/sessions → poll GET /api/sessions/{sessionId}\n// Ready.</div>
+    </section>
+
+    <section class="card">
+      <div class="card-title"><span>Returned Transcript</span><button id="clear">Clear</button></div>
+      <div id="output" class="pane">No active session transcript.</div>
+    </section>
+  </main>
+
+  <footer>
+    <form id="form" class="composer">
+      <input id="input" type="text" placeholder="Enter message for Allie..." autocomplete="off" />
+      <button id="send" type="submit">Send</button>
+    </form>
+  </footer>
+
+<script>
+  const BASE_URL = "https://moonshadow-path-proof.vercel.app";
+  const form = document.getElementById("form");
+  const input = document.getElementById("input");
+  const logs = document.getElementById("logs");
+  const output = document.getElementById("output");
+  const statusEl = document.getElementById("status");
+  const dot = document.getElementById("dot");
+  const clear = document.getElementById("clear");
+  let pollTimer = null;
+  let activeCorrelationId = null;
+
+  function setStatus(state) {
+    statusEl.textContent = state.toUpperCase();
+    dot.className = "dot";
+    if (state === "posting" || state === "polling") dot.classList.add("busy");
+    if (state === "done") dot.classList.add("done");
+    if (state === "error") dot.classList.add("error");
+  }
+
+  function addLog(message) {
+    logs.textContent += `\n[${new Date().toLocaleTimeString()}] ${message}`;
+    logs.scrollTop = logs.scrollHeight;
+  }
+
+  function transcriptToText(transcript) {
+    if (!Array.isArray(transcript)) return String(transcript || "");
+    return transcript.map(entry => {
+      if (!entry) return "";
+      const speaker = entry.from || entry.identity || "";
+      const body = entry.body || "";
+      return body ? (speaker ? `${speaker}: ${body}` : body) : "";
+    }).filter(Boolean).join("\n\n");
+  }
+
+  async function pollSession(sessionId) {
+    setStatus("polling");
+    const url = `${BASE_URL}/api/sessions/${encodeURIComponent(sessionId)}`;
+    const startedAt = Date.now();
+
+    async function pollOnce() {
+      try {
+        if (Date.now() - startedAt > 120000) throw new Error("Polling timed out after 120 seconds");
+        const res = await fetch(url, { headers: { "Accept": "application/json" } });
+        if (!res.ok) throw new Error(`Poll HTTP ${res.status}`);
+        const data = await res.json();
+
+        if (data.correlationId && activeCorrelationId && data.correlationId !== activeCorrelationId) {
+          throw new Error("Correlation ID mismatch");
+        }
+
+        addLog(`Poll: status=${data.status || "open"}`);
+
+        if (data.status === "error") {
+          output.textContent = `Error: ${data.error || "Execution halted"}`;
+          setStatus("error");
+          return;
+        }
+
+        if (data.status === "final") {
+          output.textContent = transcriptToText(data.transcript) || JSON.stringify(data, null, 2);
+          setStatus("done");
+          addLog("Session finalized successfully.");
+          return;
+        }
+
+        pollTimer = setTimeout(pollOnce, 1500);
+      } catch (err) {
+        output.textContent = `Polling error: ${err.message}`;
+        setStatus("error");
+        addLog(`Polling error: ${err.message}`);
+      }
+    }
+
+    pollOnce();
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const message = input.value.trim();
+    if (!message) return;
+    if (pollTimer) clearTimeout(pollTimer);
+
+    input.value = "";
+    output.textContent = "Processing...";
+    setStatus("posting");
+    addLog("POST /api/sessions -> target=allie");
+
+    try {
+      const res = await fetch(`${BASE_URL}/api/sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: "allie", message })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+
+      const data = await res.json();
+      if (!data.sessionId || !data.correlationId) throw new Error("Path returned invalid session response");
+
+      activeCorrelationId = data.correlationId;
+      addLog(`Session: ${data.sessionId}`);
+      addLog(`Correlation: ${data.correlationId}`);
+      pollSession(data.sessionId);
+    } catch (err) {
+      output.textContent = `POST failed: ${err.message}`;
+      setStatus("error");
+      addLog(`POST error: ${err.message}`);
+    }
+  });
+
+  clear.addEventListener("click", () => { output.textContent = "No active session transcript."; });
+</script>
+</body>
+</html>
