@@ -10,13 +10,13 @@ interface ToolShelfProps {
 }
 
 const TABS = [
-  { id: 'markup', label: 'Markup' },
-  { id: 'media', label: 'Media' },
-  { id: 'browser', label: 'Browser' },
-  { id: 'notes', label: 'Notes' },
-  { id: 'audio', label: 'Audio' },
-  { id: 'text', label: 'Text' },
-];
+  { id: 'markup', label: 'Markup', status: 'NOT CONNECTED', detail: 'Drawing/annotation module is not mounted yet.' },
+  { id: 'media', label: 'Media', status: 'NOT CONNECTED', detail: 'Media picker/import pipeline is not mounted yet.' },
+  { id: 'browser', label: 'Browser', status: 'NOT CONNECTED', detail: 'Browser/research surface is not mounted yet.' },
+  { id: 'notes', label: 'Notes', status: 'NOT CONNECTED', detail: 'Project notes persistence is not mounted yet.' },
+  { id: 'audio', label: 'Audio', status: 'NOT CONNECTED', detail: 'Recording/mixer controls are not mounted yet.' },
+  { id: 'text', label: 'Text', status: 'PARTIAL', detail: 'Text edits are supported through the shared editor runtime; a dedicated text panel is not mounted yet.' },
+] as const;
 
 export default function ToolShelf({
   state,
@@ -25,6 +25,7 @@ export default function ToolShelf({
   onTabChange,
 }: ToolShelfProps) {
   const isOpen = state !== 'collapsed';
+  const active = TABS.find((tab) => tab.id === activeTab) ?? TABS[0];
 
   const cycle = () => {
     if (state === 'collapsed') onStateChange('half');
@@ -80,12 +81,10 @@ export default function ToolShelf({
           </ScrollView>
 
           <View style={styles.body}>
-            <Text style={styles.placeholder}>
-              {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} surface — plugin ready
-            </Text>
-            <Text style={styles.placeholderSub}>
-              Modular. Each tab receives its own module later.
-            </Text>
+            <Text style={styles.surfaceTitle}>{active.label}</Text>
+            <Text style={[styles.status, active.status === 'PARTIAL' && styles.statusPartial]}>{active.status}</Text>
+            <Text style={styles.detail}>{active.detail}</Text>
+            <Text style={styles.boundary}>No action on this surface reports success until a real module is connected.</Text>
           </View>
         </>
       )}
@@ -160,15 +159,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  placeholder: {
+  surfaceTitle: {
     color: '#e5e5e5',
     fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 4,
+    fontWeight: '700',
+    marginBottom: 5,
   },
-  placeholderSub: {
-    color: '#6b7280',
+  status: {
+    color: '#ef4444',
     fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  statusPartial: {
+    color: '#f59e0b',
+  },
+  detail: {
+    color: '#9ca3af',
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  boundary: {
+    color: '#6b7280',
+    fontSize: 11,
     textAlign: 'center',
   },
 });
