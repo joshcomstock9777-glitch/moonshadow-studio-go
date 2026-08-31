@@ -39,7 +39,12 @@ export default function ToolShelf({
   const active = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
   const selectedClip = editorState.media.find((clip) => clip.id === editorState.selectedClipId) || null;
 
-  useEffect(() => editorRuntime.subscribe(setEditorState), [editorRuntime]);
+  useEffect(() => {
+    const unsubscribe = editorRuntime.subscribe(setEditorState);
+    return () => {
+      unsubscribe();
+    };
+  }, [editorRuntime]);
 
   const cycle = () => {
     if (state === 'collapsed') onStateChange('half');
