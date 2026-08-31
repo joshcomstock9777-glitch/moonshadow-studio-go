@@ -92,7 +92,7 @@ export default function ToolShelf({
   };
 
   const toggleMute = async () => {
-    const result = await editorRuntime.execute({ type: 'mute_track', payload: {} });
+    const result = await editorRuntime.execute({ type: 'mute_track' });
     setAudioMessage(result.message);
   };
 
