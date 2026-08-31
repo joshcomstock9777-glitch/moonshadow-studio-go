@@ -1,17 +1,19 @@
-import React from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, StyleSheet, Pressable, ScrollView, TextInput } from 'react-native';
 import { ToolPanelState } from '../../types';
+import { EditorRuntime } from '../../modules/editor/runtime';
 
 interface ToolShelfProps {
   state: ToolPanelState;
   onStateChange: (state: ToolPanelState) => void;
   activeTab?: string;
   onTabChange?: (tab: string) => void;
+  editorRuntime: EditorRuntime;
 }
 
-const TABS = [
+const BASE_TABS = [
   { id: 'markup', label: 'Markup', status: 'NOT CONNECTED', detail: 'Drawing/annotation module is not mounted yet.' },
-  { id: 'media', label: 'Media', status: 'NOT CONNECTED', detail: 'Media picker/import pipeline is not mounted yet.' },
+  { id: 'media', label: 'Media', status: 'PARTIAL', detail: 'Direct media URI import is connected to the shared editor runtime. Device/gallery picker and durable asset storage are not connected yet.' },
   { id: 'browser', label: 'Browser', status: 'NOT CONNECTED', detail: 'Browser/research surface is not mounted yet.' },
   { id: 'notes', label: 'Notes', status: 'NOT CONNECTED', detail: 'Project notes persistence is not mounted yet.' },
   { id: 'audio', label: 'Audio', status: 'NOT CONNECTED', detail: 'Recording/mixer controls are not mounted yet.' },
@@ -23,9 +25,14 @@ export default function ToolShelf({
   onStateChange,
   activeTab = 'markup',
   onTabChange,
+  editorRuntime,
 }: ToolShelfProps) {
   const isOpen = state !== 'collapsed';
-  const active = TABS.find((tab) => tab.id === activeTab) ?? TABS[0];
+  const [mediaUri, setMediaUri] = useState('');
+  const [mediaName, setMediaName] = useState('');
+  const [mediaMessage, setMediaMessage] = useState('');
+  const tabs = useMemo(() => BASE_TABS, []);
+  const active = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
 
   const cycle = () => {
     if (state === 'collapsed') onStateChange('half');
@@ -37,6 +44,23 @@ export default function ToolShelf({
   const toggleLock = () => {
     if (state === 'locked') onStateChange('half');
     else onStateChange('locked');
+  };
+
+  const importMedia = async () => {
+    const uri = mediaUri.trim();
+    if (!uri) {
+      setMediaMessage('Enter a media URI before importing.');
+      return;
+    }
+    const result = await editorRuntime.execute({
+      type: 'load_media',
+      payload: { uri, name: mediaName.trim() || undefined },
+    });
+    setMediaMessage(result.message);
+    if (result.ok) {
+      setMediaUri('');
+      setMediaName('');
+    }
   };
 
   return (
@@ -67,7 +91,7 @@ export default function ToolShelf({
             style={styles.tabRow}
             contentContainerStyle={styles.tabContent}
           >
-            {TABS.map((tab) => (
+            {tabs.map((tab) => (
               <Pressable
                 key={tab.id}
                 onPress={() => onTabChange?.(tab.id)}
@@ -84,7 +108,34 @@ export default function ToolShelf({
             <Text style={styles.surfaceTitle}>{active.label}</Text>
             <Text style={[styles.status, active.status === 'PARTIAL' && styles.statusPartial]}>{active.status}</Text>
             <Text style={styles.detail}>{active.detail}</Text>
-            <Text style={styles.boundary}>No action on this surface reports success until a real module is connected.</Text>
+
+            {active.id === 'media' ? (
+              <View style={styles.mediaPanel}>
+                <TextInput
+                  style={styles.input}
+                  value={mediaUri}
+                  onChangeText={setMediaUri}
+                  placeholder="Media URI (file://, content://, https://...)"
+                  placeholderTextColor="#6b7280"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <TextInput
+                  style={styles.input}
+                  value={mediaName}
+                  onChangeText={setMediaName}
+                  placeholder="Optional clip name"
+                  placeholderTextColor="#6b7280"
+                />
+                <Pressable style={styles.importButton} onPress={importMedia}>
+                  <Text style={styles.importButtonText}>Import to timeline</Text>
+                </Pressable>
+                {!!mediaMessage && <Text style={styles.mediaMessage}>{mediaMessage}</Text>}
+                <Text style={styles.boundary}>Import adds the supplied URI to the real shared editor timeline. It does not claim the URI is durable, uploaded, or renderer-validated.</Text>
+              </View>
+            ) : (
+              <Text style={styles.boundary}>No action on this surface reports success until a real module is connected.</Text>
+            )}
           </View>
         </>
       )}
@@ -100,10 +151,10 @@ const styles = StyleSheet.create({
     maxHeight: 48,
   },
   open: {
-    maxHeight: 220,
+    maxHeight: 260,
   },
   full: {
-    maxHeight: 320,
+    maxHeight: 390,
   },
   locked: {
     borderTopColor: '#f59e0b',
@@ -155,8 +206,8 @@ const styles = StyleSheet.create({
   },
   body: {
     flex: 1,
-    padding: 16,
-    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 14,
     alignItems: 'center',
   },
   surfaceTitle: {
@@ -178,7 +229,37 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     fontSize: 12,
     textAlign: 'center',
-    marginBottom: 6,
+    marginBottom: 8,
+  },
+  mediaPanel: {
+    width: '100%',
+    gap: 7,
+  },
+  input: {
+    width: '100%',
+    minHeight: 36,
+    borderRadius: 8,
+    backgroundColor: '#1c1c1f',
+    color: '#e5e5e5',
+    paddingHorizontal: 10,
+    fontSize: 12,
+  },
+  importButton: {
+    alignSelf: 'center',
+    borderRadius: 10,
+    backgroundColor: '#f59e0b',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  importButtonText: {
+    color: '#000',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  mediaMessage: {
+    color: '#d1d5db',
+    fontSize: 11,
+    textAlign: 'center',
   },
   boundary: {
     color: '#6b7280',
