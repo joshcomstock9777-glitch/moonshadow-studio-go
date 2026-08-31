@@ -1,23 +1,22 @@
-// Editor Control Adapter
-// The only way AI seats talk to the editor.
-// Real implementation will talk to the existing editor core.
-
 import { EditorCommand, EditorAdapter } from '../../types';
+import { EditorRuntime } from './runtime';
 
-export function createEditorAdapter(): EditorAdapter {
+export function createEditorAdapter(runtime: EditorRuntime): EditorAdapter {
   return {
     canExecute(cmd: EditorCommand): boolean {
-      // For now allow everything. Later: permissions, suggest-only mode, etc.
+      const state = runtime.getState();
+      if (cmd.type === 'play' || cmd.type === 'export_preview') return state.media.length > 0;
+      if (['duplicate_clip', 'delete_clip', 'adjust_volume', 'mute_track'].includes(cmd.type)) {
+        return Boolean(state.selectedClipId);
+      }
       return true;
     },
 
     async execute(cmd: EditorCommand): Promise<{ ok: boolean; message?: string }> {
-      // Stub — logs the command. Real version will call into the mounted editor.
-      console.log('[EditorAdapter]', cmd.type, 'payload' in cmd ? cmd.payload : '');
-      return {
-        ok: true,
-        message: `Executed: ${cmd.type}`,
-      };
+      if (!this.canExecute(cmd)) {
+        return { ok: false, message: `Editor command ${cmd.type} is not available in the current state.` };
+      }
+      return runtime.execute(cmd);
     },
   };
 }
