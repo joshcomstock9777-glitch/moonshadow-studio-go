@@ -43,7 +43,6 @@ export default function App() {
   const seenPathEntries = useRef(new Set<string>());
 
   useEffect(() => {
-    // Keep the adapter live at the app boundary so AI/editor tooling shares the same runtime as the visible surface.
     void editorAdapter;
   }, [editorAdapter]);
 
@@ -120,6 +119,7 @@ export default function App() {
           onStateChange={setToolState}
           activeTab={activeToolTab}
           onTabChange={setActiveToolTab}
+          editorRuntime={editorRuntime}
         />
 
         <View style={styles.talkBar}>
