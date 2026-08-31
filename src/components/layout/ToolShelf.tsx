@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, TextInput } from 'react-native';
 import { ToolPanelState } from '../../types';
-import { EditorRuntime } from '../../modules/editor/runtime';
+import { EditorRuntime, EditorState } from '../../modules/editor/runtime';
 
 interface ToolShelfProps {
   state: ToolPanelState;
@@ -16,7 +16,7 @@ const BASE_TABS = [
   { id: 'media', label: 'Media', status: 'PARTIAL', detail: 'Direct media URI import is connected to the shared editor runtime. Device/gallery picker and durable asset storage are not connected yet.' },
   { id: 'browser', label: 'Browser', status: 'NOT CONNECTED', detail: 'Browser/research surface is not mounted yet.' },
   { id: 'notes', label: 'Notes', status: 'NOT CONNECTED', detail: 'Project notes persistence is not mounted yet.' },
-  { id: 'audio', label: 'Audio', status: 'NOT CONNECTED', detail: 'Recording/mixer controls are not mounted yet.' },
+  { id: 'audio', label: 'Audio', status: 'PARTIAL', detail: 'Selected-clip volume and mute controls are connected to the shared editor runtime. Recording, waveform processing, and production mixing remain unconnected.' },
   { id: 'text', label: 'Text', status: 'PARTIAL', detail: 'Text insertion is mounted on the shared editor runtime. Production rendering/export remains unconnected.' },
 ] as const;
 
@@ -33,8 +33,13 @@ export default function ToolShelf({
   const [mediaMessage, setMediaMessage] = useState('');
   const [textValue, setTextValue] = useState('');
   const [textMessage, setTextMessage] = useState('');
+  const [audioMessage, setAudioMessage] = useState('');
+  const [editorState, setEditorState] = useState<EditorState>(() => editorRuntime.getState());
   const tabs = useMemo(() => BASE_TABS, []);
   const active = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
+  const selectedClip = editorState.media.find((clip) => clip.id === editorState.selectedClipId) || null;
+
+  useEffect(() => editorRuntime.subscribe(setEditorState), [editorRuntime]);
 
   const cycle = () => {
     if (state === 'collapsed') onStateChange('half');
@@ -74,6 +79,16 @@ export default function ToolShelf({
     const result = await editorRuntime.execute({ type: 'add_text', payload: { text: value } });
     setTextMessage(result.message);
     if (result.ok) setTextValue('');
+  };
+
+  const adjustVolume = async (level: number) => {
+    const result = await editorRuntime.execute({ type: 'adjust_volume', payload: { level } });
+    setAudioMessage(result.message);
+  };
+
+  const toggleMute = async () => {
+    const result = await editorRuntime.execute({ type: 'mute_track', payload: {} });
+    setAudioMessage(result.message);
   };
 
   return (
@@ -161,6 +176,37 @@ export default function ToolShelf({
                 </Pressable>
                 {!!textMessage && <Text style={styles.toolMessage}>{textMessage}</Text>}
                 <Text style={styles.boundary}>Success means the text item was added to shared editor project state at the current playhead. It does not claim rendered pixels or exported media exist.</Text>
+              </View>
+            ) : active.id === 'audio' ? (
+              <View style={styles.toolPanel}>
+                <Text style={styles.audioSelection}>
+                  {selectedClip ? `${selectedClip.name} • ${Math.round(selectedClip.volume * 100)}%${selectedClip.muted ? ' • muted' : ''}` : 'Select or import a clip before changing audio.'}
+                </Text>
+                <View style={styles.audioRow}>
+                  <Pressable
+                    style={[styles.secondaryButton, !selectedClip && styles.disabledButton]}
+                    disabled={!selectedClip}
+                    onPress={() => adjustVolume(Math.max(0, (selectedClip?.volume || 0) - 0.1))}
+                  >
+                    <Text style={styles.secondaryButtonText}>−10%</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.actionButton, !selectedClip && styles.disabledButton]}
+                    disabled={!selectedClip}
+                    onPress={toggleMute}
+                  >
+                    <Text style={styles.actionButtonText}>{selectedClip?.muted ? 'Unmute' : 'Mute'}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.secondaryButton, !selectedClip && styles.disabledButton]}
+                    disabled={!selectedClip}
+                    onPress={() => adjustVolume(Math.min(2, (selectedClip?.volume || 0) + 0.1))}
+                  >
+                    <Text style={styles.secondaryButtonText}>+10%</Text>
+                  </Pressable>
+                </View>
+                {!!audioMessage && <Text style={styles.toolMessage}>{audioMessage}</Text>}
+                <Text style={styles.boundary}>These controls mutate selected-clip volume/mute state in the real shared editor runtime. They do not claim recording, waveform processing, rendered audio, or exported media.</Text>
               </View>
             ) : (
               <Text style={styles.boundary}>No action on this surface reports success until a real module is connected.</Text>
@@ -289,6 +335,32 @@ const styles = StyleSheet.create({
     color: '#000',
     fontSize: 12,
     fontWeight: '800',
+  },
+  secondaryButton: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#4b5563',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  secondaryButtonText: {
+    color: '#e5e5e5',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  disabledButton: {
+    opacity: 0.35,
+  },
+  audioRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  audioSelection: {
+    color: '#d1d5db',
+    fontSize: 12,
+    textAlign: 'center',
   },
   toolMessage: {
     color: '#d1d5db',
