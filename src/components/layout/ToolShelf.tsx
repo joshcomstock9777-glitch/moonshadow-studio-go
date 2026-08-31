@@ -17,7 +17,7 @@ const BASE_TABS = [
   { id: 'browser', label: 'Browser', status: 'NOT CONNECTED', detail: 'Browser/research surface is not mounted yet.' },
   { id: 'notes', label: 'Notes', status: 'NOT CONNECTED', detail: 'Project notes persistence is not mounted yet.' },
   { id: 'audio', label: 'Audio', status: 'NOT CONNECTED', detail: 'Recording/mixer controls are not mounted yet.' },
-  { id: 'text', label: 'Text', status: 'PARTIAL', detail: 'Text edits are supported through the shared editor runtime; a dedicated text panel is not mounted yet.' },
+  { id: 'text', label: 'Text', status: 'PARTIAL', detail: 'Text insertion is mounted on the shared editor runtime. Production rendering/export remains unconnected.' },
 ] as const;
 
 export default function ToolShelf({
@@ -31,6 +31,8 @@ export default function ToolShelf({
   const [mediaUri, setMediaUri] = useState('');
   const [mediaName, setMediaName] = useState('');
   const [mediaMessage, setMediaMessage] = useState('');
+  const [textValue, setTextValue] = useState('');
+  const [textMessage, setTextMessage] = useState('');
   const tabs = useMemo(() => BASE_TABS, []);
   const active = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
 
@@ -61,6 +63,17 @@ export default function ToolShelf({
       setMediaUri('');
       setMediaName('');
     }
+  };
+
+  const addText = async () => {
+    const value = textValue.trim();
+    if (!value) {
+      setTextMessage('Enter text before adding it.');
+      return;
+    }
+    const result = await editorRuntime.execute({ type: 'add_text', payload: { text: value } });
+    setTextMessage(result.message);
+    if (result.ok) setTextValue('');
   };
 
   return (
@@ -110,7 +123,7 @@ export default function ToolShelf({
             <Text style={styles.detail}>{active.detail}</Text>
 
             {active.id === 'media' ? (
-              <View style={styles.mediaPanel}>
+              <View style={styles.toolPanel}>
                 <TextInput
                   style={styles.input}
                   value={mediaUri}
@@ -127,11 +140,27 @@ export default function ToolShelf({
                   placeholder="Optional clip name"
                   placeholderTextColor="#6b7280"
                 />
-                <Pressable style={styles.importButton} onPress={importMedia}>
-                  <Text style={styles.importButtonText}>Import to timeline</Text>
+                <Pressable style={styles.actionButton} onPress={importMedia}>
+                  <Text style={styles.actionButtonText}>Import to timeline</Text>
                 </Pressable>
-                {!!mediaMessage && <Text style={styles.mediaMessage}>{mediaMessage}</Text>}
+                {!!mediaMessage && <Text style={styles.toolMessage}>{mediaMessage}</Text>}
                 <Text style={styles.boundary}>Import adds the supplied URI to the real shared editor timeline. It does not claim the URI is durable, uploaded, or renderer-validated.</Text>
+              </View>
+            ) : active.id === 'text' ? (
+              <View style={styles.toolPanel}>
+                <TextInput
+                  style={[styles.input, styles.multilineInput]}
+                  value={textValue}
+                  onChangeText={setTextValue}
+                  placeholder="Text to add at the current playhead"
+                  placeholderTextColor="#6b7280"
+                  multiline
+                />
+                <Pressable style={styles.actionButton} onPress={addText}>
+                  <Text style={styles.actionButtonText}>Add text at playhead</Text>
+                </Pressable>
+                {!!textMessage && <Text style={styles.toolMessage}>{textMessage}</Text>}
+                <Text style={styles.boundary}>Success means the text item was added to shared editor project state at the current playhead. It does not claim rendered pixels or exported media exist.</Text>
               </View>
             ) : (
               <Text style={styles.boundary}>No action on this surface reports success until a real module is connected.</Text>
@@ -231,7 +260,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 8,
   },
-  mediaPanel: {
+  toolPanel: {
     width: '100%',
     gap: 7,
   },
@@ -244,19 +273,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     fontSize: 12,
   },
-  importButton: {
+  multilineInput: {
+    minHeight: 58,
+    paddingTop: 9,
+    textAlignVertical: 'top',
+  },
+  actionButton: {
     alignSelf: 'center',
     borderRadius: 10,
     backgroundColor: '#f59e0b',
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
-  importButtonText: {
+  actionButtonText: {
     color: '#000',
     fontSize: 12,
     fontWeight: '800',
   },
-  mediaMessage: {
+  toolMessage: {
     color: '#d1d5db',
     fontSize: 11,
     textAlign: 'center',
