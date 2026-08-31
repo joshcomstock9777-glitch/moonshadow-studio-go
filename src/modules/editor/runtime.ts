@@ -1,7 +1,9 @@
 import { EditorCommand } from '../../types';
+import { assetLibrary } from '../assets/library';
 
 export interface EditorMediaItem {
   id: string;
+  assetId: string;
   uri: string;
   name: string;
   start: number;
@@ -57,7 +59,9 @@ export class EditorRuntime {
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     listener(this.state);
-    return () => this.listeners.delete(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   private publish(next: EditorState) {
@@ -79,10 +83,13 @@ export class EditorRuntime {
 
     switch (cmd.type) {
       case 'load_media': {
+        const name = cmd.payload.name || cmd.payload.uri.split('/').pop() || 'Media';
+        const sourceAsset = assetLibrary.registerSourceUri(cmd.payload.uri, name);
         const clip: EditorMediaItem = {
           id: `clip-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          assetId: sourceAsset.id,
           uri: cmd.payload.uri,
-          name: cmd.payload.name || cmd.payload.uri.split('/').pop() || 'Media',
+          name,
           start: this.state.duration,
           duration: 5,
           volume: 1,
@@ -90,8 +97,9 @@ export class EditorRuntime {
         };
         const media = [...this.state.media, clip];
         const duration = Math.max(this.state.duration, clip.start + clip.duration);
-        this.update({ media, duration, selectedClipId: clip.id, dirty: true, lastMessage: `Loaded ${clip.name}` });
-        return { ok: true, message: `Loaded ${clip.name}` };
+        const message = `Loaded ${clip.name}; source provenance recorded as URI reference only.`;
+        this.update({ media, duration, selectedClipId: clip.id, dirty: true, lastMessage: message });
+        return { ok: true, message };
       }
       case 'play':
         if (!this.state.media.length) return fail('Cannot play: no media is loaded.');
@@ -154,8 +162,17 @@ export class EditorRuntime {
       }
       case 'save_project': {
         const timestamp = Date.now();
-        this.update({ dirty: false, lastSavedAt: timestamp, lastMessage: 'Project state saved in Studio Go memory.' });
-        return { ok: true, message: 'Project state saved in Studio Go memory.' };
+        assetLibrary.recordProjectSnapshot({
+          projectName: this.state.projectName,
+          mediaAssetIds: Array.from(new Set(this.state.media.map((clip) => clip.assetId))),
+          mediaCount: this.state.media.length,
+          textCount: this.state.text.length,
+          duration: this.state.duration,
+          savedAt: timestamp,
+        });
+        const message = 'Project state saved in Studio Go memory with provenance snapshot; durable storage is still required.';
+        this.update({ dirty: false, lastSavedAt: timestamp, lastMessage: message });
+        return { ok: true, message };
       }
       case 'export_preview': {
         if (!this.state.media.length) return fail('Cannot export preview: no media is loaded.');
