@@ -142,6 +142,15 @@ function validateDurableAsset(value: unknown, input: PersistAssetInput): StudioA
   if (!candidate.provenance || !Array.isArray(candidate.provenance.parentAssetIds)) {
     throw new Error('Asset storage server returned incomplete provenance evidence.');
   }
+  if (!candidate.metadata || typeof candidate.metadata !== 'object') {
+    throw new Error('Asset storage server returned an asset without metadata evidence.');
+  }
+
+  for (const [key, expected] of Object.entries(input.metadata ?? {})) {
+    if (candidate.metadata[key] !== expected) {
+      throw new Error(`Asset storage server did not echo required metadata evidence: ${key}.`);
+    }
+  }
 
   return candidate as StudioAsset;
 }
