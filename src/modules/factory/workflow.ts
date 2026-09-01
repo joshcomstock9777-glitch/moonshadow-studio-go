@@ -14,6 +14,7 @@ export interface PublishDestination {
   label: string;
   health: PublishHealth;
   externalChannelId?: string;
+  healthReason?: string;
 }
 
 export interface ExternalPublishEvidence {
@@ -122,7 +123,7 @@ export class ContentFactory {
           ...lane,
           destinationId,
           stage: 'blocked',
-          blocker: 'Publish destination is not live-connected.',
+          blocker: destination?.healthReason || 'Publish destination is not live-connected.',
         };
       }
       return {
