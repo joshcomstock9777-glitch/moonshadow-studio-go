@@ -1,6 +1,7 @@
 import { EditorCommand } from '../../types';
 import { assetLibrary } from '../assets/library';
 import { persistAsset } from '../assets/storageClient';
+import { renderProject } from '../factory/rendererClient';
 
 export interface EditorMediaItem {
   id: string;
@@ -200,9 +201,34 @@ export class EditorRuntime {
       }
       case 'export_preview': {
         if (!this.state.media.length) return fail('Cannot export preview: no media is loaded.');
-        const timestamp = Date.now();
-        this.update({ lastExportedAt: timestamp, lastMessage: 'Preview export requested; renderer connection is still required.' });
-        return { ok: false, message: 'Preview export requested; renderer connection is still required.' };
+        if (this.state.dirty) return fail('Cannot export preview: save the current project state durably first.');
+
+        const projectAsset = assetLibrary.list().find((asset) =>
+          asset.kind === 'project_state'
+          && asset.storageState === 'durable'
+          && asset.provenance.projectName === this.state.projectName,
+        );
+
+        if (!projectAsset) {
+          return fail('Cannot export preview: no durable project-state asset exists for the current editor project.');
+        }
+
+        try {
+          const confirmation = await renderProject({
+            projectAssetId: projectAsset.id,
+            projectName: this.state.projectName,
+            outputName: `${this.state.projectName} preview`,
+            mimeType: 'video/mp4',
+          });
+          const renderedAsset = assetLibrary.registerDurableAsset(confirmation.asset);
+          const timestamp = confirmation.confirmedAt;
+          const message = `Preview rendered durably as ${renderedAsset.name}; renderer and Asset Storage evidence confirmed.`;
+          this.update({ lastExportedAt: timestamp, lastMessage: message });
+          return { ok: true, message };
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'Renderer failed without durable output evidence.';
+          return fail(`Preview export was not confirmed. ${reason}`);
+        }
       }
       case 'show_frame': {
         const time = Math.max(0, Math.min(cmd.payload.time, this.state.duration));
