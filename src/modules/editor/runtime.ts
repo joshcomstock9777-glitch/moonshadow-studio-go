@@ -1,5 +1,6 @@
 import { EditorCommand } from '../../types';
 import { assetLibrary } from '../assets/library';
+import { persistAsset } from '../assets/storageClient';
 
 export interface EditorMediaItem {
   id: string;
@@ -162,17 +163,40 @@ export class EditorRuntime {
       }
       case 'save_project': {
         const timestamp = Date.now();
-        assetLibrary.recordProjectSnapshot({
+        const mediaAssetIds = Array.from(new Set(this.state.media.map((clip) => clip.assetId)));
+        const memorySnapshot = assetLibrary.recordProjectSnapshot({
           projectName: this.state.projectName,
-          mediaAssetIds: Array.from(new Set(this.state.media.map((clip) => clip.assetId))),
+          mediaAssetIds,
           mediaCount: this.state.media.length,
           textCount: this.state.text.length,
           duration: this.state.duration,
           savedAt: timestamp,
         });
-        const message = 'Project state saved in Studio Go memory with provenance snapshot; durable storage is still required.';
-        this.update({ dirty: false, lastSavedAt: timestamp, lastMessage: message });
-        return { ok: true, message };
+
+        try {
+          const confirmation = await persistAsset({
+            name: `${this.state.projectName} state`,
+            kind: 'project_state',
+            projectName: this.state.projectName,
+            parentAssetIds: mediaAssetIds,
+            metadata: {
+              mediaCount: this.state.media.length,
+              textCount: this.state.text.length,
+              duration: this.state.duration,
+              savedAt: timestamp,
+              sourceMemoryAssetId: memorySnapshot.id,
+            },
+          });
+          assetLibrary.registerDurableAsset(confirmation.asset);
+          const message = 'Project state saved durably with storage confirmation and provenance evidence.';
+          this.update({ dirty: false, lastSavedAt: confirmation.confirmedAt, lastMessage: message });
+          return { ok: true, message };
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'Durable asset storage failed.';
+          const message = `Project snapshot remains in memory only; durable save was not confirmed. ${reason}`;
+          this.update({ dirty: true, lastMessage: message });
+          return { ok: false, message };
+        }
       }
       case 'export_preview': {
         if (!this.state.media.length) return fail('Cannot export preview: no media is loaded.');
