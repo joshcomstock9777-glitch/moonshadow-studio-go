@@ -92,6 +92,29 @@ class AssetLibrary {
     return asset;
   }
 
+  registerDurableAsset(asset: StudioAsset): StudioAsset {
+    if (asset.storageState !== 'durable') {
+      throw new Error('Asset Library refused a server asset without durable storage evidence.');
+    }
+    if (!asset.provenance || !Array.isArray(asset.provenance.parentAssetIds)) {
+      throw new Error('Asset Library refused a durable asset with incomplete provenance.');
+    }
+
+    const confirmed: StudioAsset = {
+      ...asset,
+      provenance: {
+        ...asset.provenance,
+        parentAssetIds: [...asset.provenance.parentAssetIds],
+      },
+      metadata: {
+        ...asset.metadata,
+        durable: true,
+      },
+    };
+    this.assets.set(confirmed.id, confirmed);
+    return confirmed;
+  }
+
   recordRenderedOutput(params: {
     name: string;
     uri: string;
