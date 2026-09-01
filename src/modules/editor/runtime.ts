@@ -173,6 +173,16 @@ export class EditorRuntime {
           duration: this.state.duration,
           savedAt: timestamp,
         });
+        const projectStateJson = JSON.stringify({
+          schemaVersion: 1,
+          projectName: this.state.projectName,
+          media: this.state.media,
+          text: this.state.text,
+          selectedClipId: this.state.selectedClipId,
+          currentTime: this.state.currentTime,
+          duration: this.state.duration,
+          savedAt: timestamp,
+        });
 
         try {
           const confirmation = await persistAsset({
@@ -186,10 +196,12 @@ export class EditorRuntime {
               duration: this.state.duration,
               savedAt: timestamp,
               sourceMemoryAssetId: memorySnapshot.id,
+              projectStateSchemaVersion: 1,
+              projectStateJson,
             },
           });
           assetLibrary.registerDurableAsset(confirmation.asset);
-          const message = 'Project state saved durably with storage confirmation and provenance evidence.';
+          const message = 'Project state saved durably with reconstructable timeline/text payload, storage confirmation, and provenance evidence.';
           this.update({ dirty: false, lastSavedAt: confirmation.confirmedAt, lastMessage: message });
           return { ok: true, message };
         } catch (error) {
