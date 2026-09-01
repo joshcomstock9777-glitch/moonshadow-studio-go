@@ -63,7 +63,9 @@ export class EditorRuntime {
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     listener(this.state);
-    return () => this.listeners.delete(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   private publish(next: EditorState) {
@@ -262,4 +264,8 @@ export class EditorRuntime {
         return fail('Unsupported editor command.');
     }
   }
+}
+
+export function createEditorRuntime() {
+  return new EditorRuntime();
 }
