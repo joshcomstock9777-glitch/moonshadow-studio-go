@@ -12,6 +12,8 @@ export interface EditorMediaItem {
   duration: number;
   volume: number;
   muted: boolean;
+  fadeIn?: number;
+  fadeOut?: number;
 }
 
 export interface EditorTextItem {
@@ -61,9 +63,7 @@ export class EditorRuntime {
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     listener(this.state);
-    return () => {
-      this.listeners.delete(listener);
-    };
+    return () => this.listeners.delete(listener);
   }
 
   private publish(next: EditorState) {
@@ -75,12 +75,15 @@ export class EditorRuntime {
     this.publish({ ...this.state, ...patch });
   }
 
+  private timelineDuration(media: EditorMediaItem[]): number {
+    return media.reduce((max, clip) => Math.max(max, clip.start + clip.duration), 0);
+  }
+
   async execute(cmd: EditorCommand): Promise<{ ok: boolean; message: string }> {
     const fail = (message: string) => {
       this.update({ lastMessage: message });
       return { ok: false, message };
     };
-
     const selected = this.state.media.find((clip) => clip.id === this.state.selectedClipId) || null;
 
     switch (cmd.type) {
@@ -98,7 +101,7 @@ export class EditorRuntime {
           muted: false,
         };
         const media = [...this.state.media, clip];
-        const duration = Math.max(this.state.duration, clip.start + clip.duration);
+        const duration = this.timelineDuration(media);
         const message = `Loaded ${clip.name}; source provenance recorded as URI reference only.`;
         this.update({ media, duration, selectedClipId: clip.id, dirty: true, lastMessage: message });
         return { ok: true, message };
@@ -124,22 +127,59 @@ export class EditorRuntime {
         if (index < 0) return fail('Cannot move clip: clip was not found.');
         const media = [...this.state.media];
         media[index] = { ...media[index], start: Math.max(0, cmd.payload.toTime) };
-        const duration = media.reduce((max, clip) => Math.max(max, clip.start + clip.duration), 0);
-        this.update({ media, duration, dirty: true, lastMessage: 'Clip moved.' });
+        this.update({ media, duration: this.timelineDuration(media), dirty: true, lastMessage: 'Clip moved.' });
         return { ok: true, message: 'Clip moved.' };
+      }
+      case 'split': {
+        if (!selected) return fail('Cannot split: select a clip first.');
+        const splitAt = this.state.currentTime;
+        const clipEnd = selected.start + selected.duration;
+        if (splitAt <= selected.start || splitAt >= clipEnd) return fail('Cannot split: move the playhead inside the selected clip.');
+        const leftDuration = splitAt - selected.start;
+        const rightDuration = clipEnd - splitAt;
+        const right: EditorMediaItem = {
+          ...selected,
+          id: `clip-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          start: splitAt,
+          duration: rightDuration,
+        };
+        const media = this.state.media.flatMap((clip) => clip.id === selected.id ? [{ ...clip, duration: leftDuration }, right] : [clip]);
+        const message = `Clip split at ${splitAt.toFixed(1)}s.`;
+        this.update({ media, selectedClipId: right.id, duration: this.timelineDuration(media), dirty: true, lastMessage: message });
+        return { ok: true, message };
+      }
+      case 'trim_start': {
+        if (!selected) return fail('Cannot trim start: select a clip first.');
+        const trimAt = this.state.currentTime;
+        const clipEnd = selected.start + selected.duration;
+        if (trimAt <= selected.start || trimAt >= clipEnd) return fail('Cannot trim start: move the playhead inside the selected clip.');
+        const media = this.state.media.map((clip) => clip.id === selected.id ? { ...clip, start: trimAt, duration: clipEnd - trimAt } : clip);
+        const message = `Clip start trimmed to ${trimAt.toFixed(1)}s.`;
+        this.update({ media, duration: this.timelineDuration(media), dirty: true, lastMessage: message });
+        return { ok: true, message };
+      }
+      case 'trim_end': {
+        if (!selected) return fail('Cannot trim end: select a clip first.');
+        const trimAt = this.state.currentTime;
+        const clipEnd = selected.start + selected.duration;
+        if (trimAt <= selected.start || trimAt >= clipEnd) return fail('Cannot trim end: move the playhead inside the selected clip.');
+        const media = this.state.media.map((clip) => clip.id === selected.id ? { ...clip, duration: trimAt - selected.start } : clip);
+        const duration = this.timelineDuration(media);
+        const message = `Clip end trimmed to ${trimAt.toFixed(1)}s.`;
+        this.update({ media, duration, currentTime: Math.min(this.state.currentTime, duration), dirty: true, lastMessage: message });
+        return { ok: true, message };
       }
       case 'duplicate_clip': {
         if (!selected) return fail('Cannot duplicate: select a clip first.');
         const copy = { ...selected, id: `clip-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, start: selected.start + selected.duration };
         const media = [...this.state.media, copy];
-        const duration = media.reduce((max, clip) => Math.max(max, clip.start + clip.duration), 0);
-        this.update({ media, duration, selectedClipId: copy.id, dirty: true, lastMessage: 'Clip duplicated.' });
+        this.update({ media, duration: this.timelineDuration(media), selectedClipId: copy.id, dirty: true, lastMessage: 'Clip duplicated.' });
         return { ok: true, message: 'Clip duplicated.' };
       }
       case 'delete_clip': {
         if (!selected) return fail('Cannot delete: select a clip first.');
         const media = this.state.media.filter((clip) => clip.id !== selected.id);
-        const duration = media.reduce((max, clip) => Math.max(max, clip.start + clip.duration), 0);
+        const duration = this.timelineDuration(media);
         this.update({ media, duration, selectedClipId: media[0]?.id || null, currentTime: Math.min(this.state.currentTime, duration), dirty: true, lastMessage: 'Clip deleted.' });
         return { ok: true, message: 'Clip deleted.' };
       }
@@ -162,43 +202,25 @@ export class EditorRuntime {
         this.update({ media, dirty: true, lastMessage: selected.muted ? 'Clip unmuted.' : 'Clip muted.' });
         return { ok: true, message: selected.muted ? 'Clip unmuted.' : 'Clip muted.' };
       }
+      case 'add_fade': {
+        if (!selected) return fail('Cannot add fade: select a clip first.');
+        const fadeIn = Math.max(0, Math.min(cmd.payload.in ?? selected.fadeIn ?? 0, selected.duration));
+        const fadeOut = Math.max(0, Math.min(cmd.payload.out ?? selected.fadeOut ?? 0, selected.duration));
+        if (fadeIn + fadeOut > selected.duration) return fail('Cannot add fade: combined fade duration exceeds the selected clip.');
+        const media = this.state.media.map((clip) => clip.id === selected.id ? { ...clip, fadeIn, fadeOut } : clip);
+        const message = `Clip fades set to ${fadeIn.toFixed(1)}s in / ${fadeOut.toFixed(1)}s out.`;
+        this.update({ media, dirty: true, lastMessage: message });
+        return { ok: true, message };
+      }
       case 'save_project': {
         const timestamp = Date.now();
         const mediaAssetIds = Array.from(new Set(this.state.media.map((clip) => clip.assetId)));
-        const memorySnapshot = assetLibrary.recordProjectSnapshot({
-          projectName: this.state.projectName,
-          mediaAssetIds,
-          mediaCount: this.state.media.length,
-          textCount: this.state.text.length,
-          duration: this.state.duration,
-          savedAt: timestamp,
-        });
-        const projectStateJson = JSON.stringify({
-          schemaVersion: 1,
-          projectName: this.state.projectName,
-          media: this.state.media,
-          text: this.state.text,
-          selectedClipId: this.state.selectedClipId,
-          currentTime: this.state.currentTime,
-          duration: this.state.duration,
-          savedAt: timestamp,
-        });
-
+        const memorySnapshot = assetLibrary.recordProjectSnapshot({ projectName: this.state.projectName, mediaAssetIds, mediaCount: this.state.media.length, textCount: this.state.text.length, duration: this.state.duration, savedAt: timestamp });
+        const projectStateJson = JSON.stringify({ schemaVersion: 1, projectName: this.state.projectName, media: this.state.media, text: this.state.text, selectedClipId: this.state.selectedClipId, currentTime: this.state.currentTime, duration: this.state.duration, savedAt: timestamp });
         try {
           const confirmation = await persistAsset({
-            name: `${this.state.projectName} state`,
-            kind: 'project_state',
-            projectName: this.state.projectName,
-            parentAssetIds: mediaAssetIds,
-            metadata: {
-              mediaCount: this.state.media.length,
-              textCount: this.state.text.length,
-              duration: this.state.duration,
-              savedAt: timestamp,
-              sourceMemoryAssetId: memorySnapshot.id,
-              projectStateSchemaVersion: 1,
-              projectStateJson,
-            },
+            name: `${this.state.projectName} state`, kind: 'project_state', projectName: this.state.projectName, parentAssetIds: mediaAssetIds,
+            metadata: { mediaCount: this.state.media.length, textCount: this.state.text.length, duration: this.state.duration, savedAt: timestamp, sourceMemoryAssetId: memorySnapshot.id, projectStateSchemaVersion: 1, projectStateJson },
           });
           assetLibrary.registerDurableAsset(confirmation.asset);
           const message = 'Project state saved durably with reconstructable timeline/text payload, storage confirmation, and provenance evidence.';
@@ -214,24 +236,10 @@ export class EditorRuntime {
       case 'export_preview': {
         if (!this.state.media.length) return fail('Cannot export preview: no media is loaded.');
         if (this.state.dirty) return fail('Cannot export preview: save the current project state durably first.');
-
-        const projectAsset = assetLibrary.list().find((asset) =>
-          asset.kind === 'project_state'
-          && asset.storageState === 'durable'
-          && asset.provenance.projectName === this.state.projectName,
-        );
-
-        if (!projectAsset) {
-          return fail('Cannot export preview: no durable project-state asset exists for the current editor project.');
-        }
-
+        const projectAsset = assetLibrary.list().find((asset) => asset.kind === 'project_state' && asset.storageState === 'durable' && asset.provenance.projectName === this.state.projectName);
+        if (!projectAsset) return fail('Cannot export preview: no durable project-state asset exists for the current editor project.');
         try {
-          const confirmation = await renderProject({
-            projectAssetId: projectAsset.id,
-            projectName: this.state.projectName,
-            outputName: `${this.state.projectName} preview`,
-            mimeType: 'video/mp4',
-          });
+          const confirmation = await renderProject({ projectAssetId: projectAsset.id, projectName: this.state.projectName, outputName: `${this.state.projectName} preview`, mimeType: 'video/mp4' });
           const renderedAsset = assetLibrary.registerDurableAsset(confirmation.asset);
           const timestamp = confirmation.confirmedAt;
           const message = `Preview rendered durably as ${renderedAsset.name}; renderer and Asset Storage evidence confirmed.`;
@@ -247,19 +255,11 @@ export class EditorRuntime {
         this.update({ currentTime: time, isPlaying: false, lastMessage: `Showing frame at ${time.toFixed(1)}s.` });
         return { ok: true, message: `Showing frame at ${time.toFixed(1)}s.` };
       }
-      case 'split':
-      case 'trim_start':
-      case 'trim_end':
-      case 'add_fade':
       case 'undo':
       case 'redo':
-        return fail(`${cmd.type} is not connected to the production renderer yet.`);
+        return fail(`${cmd.type} is not connected to editor history yet.`);
       default:
         return fail('Unsupported editor command.');
     }
   }
-}
-
-export function createEditorRuntime() {
-  return new EditorRuntime();
 }
