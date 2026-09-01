@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, TextInput } from 'react-native';
 import { ToolPanelState } from '../../types';
 import { EditorRuntime, EditorState } from '../../modules/editor/runtime';
 import { assetLibrary } from '../../modules/assets/library';
 import { persistAsset } from '../../modules/assets/storageClient';
+import { isWebMicCaptureSupported, WebMicRecorder } from '../../modules/audio/webMicRecorder';
 
 interface ToolShelfProps {
   state: ToolPanelState;
@@ -18,7 +19,7 @@ const BASE_TABS = [
   { id: 'media', label: 'Media', status: 'PARTIAL', detail: 'Direct media URI import is connected to the shared editor runtime and now attempts durable Asset Storage registration after a successful timeline import. Device/gallery picker remains unconnected.' },
   { id: 'browser', label: 'Browser', status: 'NOT CONNECTED', detail: 'Browser/research surface is not mounted yet.' },
   { id: 'notes', label: 'Notes', status: 'PARTIAL', detail: 'Project notes can be persisted through the durable Asset Storage contract. A note is not reported saved unless storage confirmation is returned.' },
-  { id: 'audio', label: 'Audio', status: 'PARTIAL', detail: 'Selected-clip volume and mute controls are connected to the shared editor runtime. Recording, waveform processing, and production mixing remain unconnected.' },
+  { id: 'audio', label: 'Audio', status: 'PARTIAL', detail: 'Selected-clip volume/mute controls are connected. Studio Go web can record a real microphone take through browser MediaRecorder and place it on the shared editor timeline. Native-device recording and production mixing remain unconnected.' },
   { id: 'text', label: 'Text', status: 'PARTIAL', detail: 'Text insertion is mounted on the shared editor runtime. Production rendering/export remains unconnected.' },
 ] as const;
 
@@ -40,15 +41,22 @@ export default function ToolShelf({
   const [notesMessage, setNotesMessage] = useState('');
   const [notesSaving, setNotesSaving] = useState(false);
   const [audioMessage, setAudioMessage] = useState('');
+  const [recording, setRecording] = useState(false);
   const [editorState, setEditorState] = useState<EditorState>(() => editorRuntime.getState());
+  const recorderRef = useRef<WebMicRecorder | null>(null);
   const tabs = useMemo(() => BASE_TABS, []);
   const active = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
   const selectedClip = editorState.media.find((clip) => clip.id === editorState.selectedClipId) || null;
+  const webMicSupported = isWebMicCaptureSupported();
+
+  if (!recorderRef.current) recorderRef.current = new WebMicRecorder();
 
   useEffect(() => {
     const unsubscribe = editorRuntime.subscribe(setEditorState);
     return () => unsubscribe();
   }, [editorRuntime]);
+
+  useEffect(() => () => recorderRef.current?.dispose(), []);
 
   const cycle = () => {
     if (state === 'collapsed') onStateChange('half');
@@ -158,6 +166,38 @@ export default function ToolShelf({
     setAudioMessage(result.message);
   };
 
+  const startMicRecording = async () => {
+    try {
+      setAudioMessage('Requesting microphone permission…');
+      await recorderRef.current!.start();
+      setRecording(true);
+      setAudioMessage('Recording microphone take. Stop when the take is finished.');
+    } catch (error) {
+      setRecording(false);
+      const reason = error instanceof Error ? error.message : 'Microphone recording could not start.';
+      setAudioMessage(reason);
+    }
+  };
+
+  const stopMicRecording = async () => {
+    try {
+      setAudioMessage('Finalizing microphone take…');
+      const clip = await recorderRef.current!.stop();
+      setRecording(false);
+      const name = `Voice take ${new Date(clip.recordedAt).toLocaleTimeString()}`;
+      const result = await editorRuntime.execute({ type: 'load_media', payload: { uri: clip.uri, name } });
+      if (!result.ok) {
+        setAudioMessage(`Microphone take was captured, but the editor rejected it. ${result.message}`);
+        return;
+      }
+      setAudioMessage(`Microphone take captured (${Math.max(1, Math.round(clip.size / 1024))} KB) and placed on the editor timeline. This browser object URL is local/non-durable until a durable media upload path confirms storage.`);
+    } catch (error) {
+      setRecording(false);
+      const reason = error instanceof Error ? error.message : 'Microphone recording could not be finalized.';
+      setAudioMessage(reason);
+    }
+  };
+
   return (
     <View style={[styles.container, isOpen && styles.open, state === 'full' && styles.full, state === 'locked' && styles.locked]}>
       <Pressable style={styles.handleArea} onPress={cycle} onLongPress={toggleLock}>
@@ -216,8 +256,13 @@ export default function ToolShelf({
                   <Pressable style={[styles.actionButton, !selectedClip && styles.disabledButton]} disabled={!selectedClip} onPress={toggleMute}><Text style={styles.actionButtonText}>{selectedClip?.muted ? 'Unmute' : 'Mute'}</Text></Pressable>
                   <Pressable style={[styles.secondaryButton, !selectedClip && styles.disabledButton]} disabled={!selectedClip} onPress={() => adjustVolume(Math.min(2, (selectedClip?.volume || 0) + 0.1))}><Text style={styles.secondaryButtonText}>+10%</Text></Pressable>
                 </View>
+                <View style={styles.audioRow}>
+                  <Pressable style={[styles.actionButton, (!webMicSupported || recording) && styles.disabledButton]} disabled={!webMicSupported || recording} onPress={startMicRecording}><Text style={styles.actionButtonText}>Record mic</Text></Pressable>
+                  <Pressable style={[styles.secondaryButton, !recording && styles.disabledButton]} disabled={!recording} onPress={stopMicRecording}><Text style={styles.secondaryButtonText}>Stop take</Text></Pressable>
+                </View>
+                {!webMicSupported && <Text style={styles.toolMessage}>Microphone capture is not available in this runtime. Studio Go web requires browser microphone permission; native-device capture remains unconnected.</Text>}
                 {!!audioMessage && <Text style={styles.toolMessage}>{audioMessage}</Text>}
-                <Text style={styles.boundary}>These controls mutate selected-clip volume/mute state in the real shared editor runtime. They do not claim recording, waveform processing, rendered audio, or exported media.</Text>
+                <Text style={styles.boundary}>Volume/mute mutate real editor state. Web microphone capture uses the browser MediaRecorder API and places the captured take on the same editor timeline. A captured browser object URL is explicitly local/non-durable until Asset Storage confirms an upload; native recording, waveform processing, rendered audio, and production mixing remain separate boundaries.</Text>
               </View>
             ) : (
               <Text style={styles.boundary}>No action on this surface reports success until a real module is connected.</Text>
