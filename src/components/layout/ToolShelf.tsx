@@ -5,6 +5,7 @@ import { EditorRuntime, EditorState } from '../../modules/editor/runtime';
 import { assetLibrary } from '../../modules/assets/library';
 import { persistAsset } from '../../modules/assets/storageClient';
 import { isWebMicCaptureSupported, WebMicRecorder } from '../../modules/audio/webMicRecorder';
+import { isWebMediaPickerSupported, pickWebMedia } from '../../modules/media/webMediaPicker';
 
 interface ToolShelfProps {
   state: ToolPanelState;
@@ -16,7 +17,7 @@ interface ToolShelfProps {
 
 const BASE_TABS = [
   { id: 'markup', label: 'Markup', status: 'NOT CONNECTED', detail: 'Drawing/annotation module is not mounted yet.' },
-  { id: 'media', label: 'Media', status: 'PARTIAL', detail: 'Direct media URI import is connected to the shared editor runtime and now attempts durable Asset Storage registration after a successful timeline import. Device/gallery picker remains unconnected.' },
+  { id: 'media', label: 'Media', status: 'PARTIAL', detail: 'Typed URI import and a real Studio Go web file picker are connected to the shared editor runtime. Browser-local files remain non-durable until a binary upload path confirms storage; native device/gallery picking remains unconnected.' },
   { id: 'browser', label: 'Browser', status: 'NOT CONNECTED', detail: 'Browser/research surface is not mounted yet.' },
   { id: 'notes', label: 'Notes', status: 'PARTIAL', detail: 'Project notes can be persisted through the durable Asset Storage contract. A note is not reported saved unless storage confirmation is returned.' },
   { id: 'audio', label: 'Audio', status: 'PARTIAL', detail: 'Selected-clip volume/mute controls are connected. Studio Go web can record a real microphone take through browser MediaRecorder and place it on the shared editor timeline. Native-device recording and production mixing remain unconnected.' },
@@ -35,6 +36,7 @@ export default function ToolShelf({
   const [mediaName, setMediaName] = useState('');
   const [mediaMessage, setMediaMessage] = useState('');
   const [mediaSaving, setMediaSaving] = useState(false);
+  const [mediaPicking, setMediaPicking] = useState(false);
   const [textValue, setTextValue] = useState('');
   const [textMessage, setTextMessage] = useState('');
   const [notesValue, setNotesValue] = useState('');
@@ -48,6 +50,7 @@ export default function ToolShelf({
   const active = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
   const selectedClip = editorState.media.find((clip) => clip.id === editorState.selectedClipId) || null;
   const webMicSupported = isWebMicCaptureSupported();
+  const webMediaPickerSupported = isWebMediaPickerSupported();
 
   if (!recorderRef.current) recorderRef.current = new WebMicRecorder();
 
@@ -108,6 +111,34 @@ export default function ToolShelf({
       setMediaMessage(`Imported to timeline, but durable storage was not confirmed. ${reason}`);
     } finally {
       setMediaSaving(false);
+    }
+  };
+
+  const chooseLocalMedia = async () => {
+    try {
+      setMediaPicking(true);
+      setMediaMessage('Opening local media picker…');
+      const picked = await pickWebMedia();
+      if (!picked) {
+        setMediaMessage('Local media selection was cancelled.');
+        return;
+      }
+
+      const result = await editorRuntime.execute({
+        type: 'load_media',
+        payload: { uri: picked.uri, name: picked.name },
+      });
+      if (!result.ok) {
+        setMediaMessage(`Selected local media, but the editor rejected it. ${result.message}`);
+        return;
+      }
+
+      setMediaMessage(`Loaded ${picked.name} (${Math.max(1, Math.round(picked.size / 1024))} KB) from the browser file picker. This browser object URL is local/non-durable until binary Asset Storage upload confirms persistence.`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Local media selection failed.';
+      setMediaMessage(reason);
+    } finally {
+      setMediaPicking(false);
     }
   };
 
@@ -224,13 +255,17 @@ export default function ToolShelf({
 
             {active.id === 'media' ? (
               <View style={styles.toolPanel}>
+                <Pressable style={[styles.actionButton, (!webMediaPickerSupported || mediaPicking) && styles.disabledButton]} disabled={!webMediaPickerSupported || mediaPicking} onPress={chooseLocalMedia}>
+                  <Text style={styles.actionButtonText}>{mediaPicking ? 'Choosing…' : 'Choose local file'}</Text>
+                </Pressable>
+                {!webMediaPickerSupported && <Text style={styles.toolMessage}>Local file picking is unavailable in this runtime. Studio Go web requires browser file-input support; native device/gallery picking remains unconnected.</Text>}
                 <TextInput style={styles.input} value={mediaUri} onChangeText={setMediaUri} placeholder="Media URI (file://, content://, https://...)" placeholderTextColor="#6b7280" autoCapitalize="none" autoCorrect={false} />
                 <TextInput style={styles.input} value={mediaName} onChangeText={setMediaName} placeholder="Optional clip name" placeholderTextColor="#6b7280" />
                 <Pressable style={[styles.actionButton, mediaSaving && styles.disabledButton]} disabled={mediaSaving} onPress={importMedia}>
-                  <Text style={styles.actionButtonText}>{mediaSaving ? 'Importing…' : 'Import to timeline'}</Text>
+                  <Text style={styles.actionButtonText}>{mediaSaving ? 'Importing…' : 'Import URI to timeline'}</Text>
                 </Pressable>
                 {!!mediaMessage && <Text style={styles.toolMessage}>{mediaMessage}</Text>}
-                <Text style={styles.boundary}>Timeline import and durable storage are separate evidence boundaries. A source is registered durable only after Asset Storage confirms it; otherwise the editor import remains usable but explicitly non-durable.</Text>
+                <Text style={styles.boundary}>Typed URI import and browser-local picking both mutate the real editor timeline. Durable storage is a separate evidence boundary. Browser object URLs are never labeled durable; native device/gallery selection and binary upload remain separate work.</Text>
               </View>
             ) : active.id === 'text' ? (
               <View style={styles.toolPanel}>
