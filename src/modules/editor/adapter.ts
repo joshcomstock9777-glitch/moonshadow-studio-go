@@ -6,7 +6,7 @@ export function createEditorAdapter(runtime: EditorRuntime): EditorAdapter {
     canExecute(cmd: EditorCommand): boolean {
       const state = runtime.getState();
       if (cmd.type === 'play' || cmd.type === 'export_preview') return state.media.length > 0;
-      if (['duplicate_clip', 'delete_clip', 'adjust_volume', 'mute_track'].includes(cmd.type)) {
+      if (['split', 'trim_start', 'trim_end', 'duplicate_clip', 'delete_clip', 'adjust_volume', 'mute_track', 'add_fade'].includes(cmd.type)) {
         return Boolean(state.selectedClipId);
       }
       return true;
