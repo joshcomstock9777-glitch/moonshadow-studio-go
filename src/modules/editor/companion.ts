@@ -2,10 +2,17 @@ import { EditorCommand, EditorAdapter } from '../../types';
 
 export type CompanionMode = 'suggest' | 'execute';
 
+export interface DestructiveApproval {
+  approved: true;
+  approvedAt: number;
+  approvedBy: 'creator';
+}
+
 export interface CompanionRequest {
   instruction: string;
   commands: EditorCommand[];
   rationale?: string;
+  destructiveApproval?: DestructiveApproval;
 }
 
 export interface CompanionStepResult {
@@ -80,6 +87,21 @@ export class EditorCompanion {
       };
     }
 
+    const destructiveCommands = request.commands.filter((command) => destructive.has(command.type));
+    if (destructiveCommands.length && !hasValidDestructiveApproval(request.destructiveApproval)) {
+      return {
+        mode: this.mode,
+        instruction: request.instruction,
+        executed: false,
+        steps: destructiveCommands.map((command) => ({
+          command,
+          ok: false,
+          message: 'Destructive editor action blocked until the creator explicitly approves execution.',
+        })),
+        summary: 'No destructive editor action was executed because creator approval evidence was not supplied.',
+      };
+    }
+
     const results: CompanionStepResult[] = [];
     for (const command of request.commands) {
       const result = await this.adapter.execute(command);
@@ -99,6 +121,15 @@ export class EditorCompanion {
         : `Executed ${succeeded} editor action${succeeded === 1 ? '' : 's'} successfully.`,
     };
   }
+}
+
+function hasValidDestructiveApproval(approval?: DestructiveApproval): boolean {
+  return Boolean(
+    approval?.approved === true &&
+    approval.approvedBy === 'creator' &&
+    Number.isFinite(approval.approvedAt) &&
+    approval.approvedAt > 0,
+  );
 }
 
 export function createEditorCompanion(adapter: EditorAdapter, mode: CompanionMode = 'suggest') {
