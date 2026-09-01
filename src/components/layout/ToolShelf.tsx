@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, TextInput } from 'react-native';
 import { ToolPanelState } from '../../types';
 import { EditorRuntime, EditorState } from '../../modules/editor/runtime';
+import { assetLibrary } from '../../modules/assets/library';
+import { persistAsset } from '../../modules/assets/storageClient';
 
 interface ToolShelfProps {
   state: ToolPanelState;
@@ -15,7 +17,7 @@ const BASE_TABS = [
   { id: 'markup', label: 'Markup', status: 'NOT CONNECTED', detail: 'Drawing/annotation module is not mounted yet.' },
   { id: 'media', label: 'Media', status: 'PARTIAL', detail: 'Direct media URI import is connected to the shared editor runtime. Device/gallery picker and durable asset storage are not connected yet.' },
   { id: 'browser', label: 'Browser', status: 'NOT CONNECTED', detail: 'Browser/research surface is not mounted yet.' },
-  { id: 'notes', label: 'Notes', status: 'NOT CONNECTED', detail: 'Project notes persistence is not mounted yet.' },
+  { id: 'notes', label: 'Notes', status: 'PARTIAL', detail: 'Project notes can be persisted through the durable Asset Storage contract. A note is not reported saved unless storage confirmation is returned.' },
   { id: 'audio', label: 'Audio', status: 'PARTIAL', detail: 'Selected-clip volume and mute controls are connected to the shared editor runtime. Recording, waveform processing, and production mixing remain unconnected.' },
   { id: 'text', label: 'Text', status: 'PARTIAL', detail: 'Text insertion is mounted on the shared editor runtime. Production rendering/export remains unconnected.' },
 ] as const;
@@ -33,6 +35,9 @@ export default function ToolShelf({
   const [mediaMessage, setMediaMessage] = useState('');
   const [textValue, setTextValue] = useState('');
   const [textMessage, setTextMessage] = useState('');
+  const [notesValue, setNotesValue] = useState('');
+  const [notesMessage, setNotesMessage] = useState('');
+  const [notesSaving, setNotesSaving] = useState(false);
   const [audioMessage, setAudioMessage] = useState('');
   const [editorState, setEditorState] = useState<EditorState>(() => editorRuntime.getState());
   const tabs = useMemo(() => BASE_TABS, []);
@@ -84,6 +89,40 @@ export default function ToolShelf({
     const result = await editorRuntime.execute({ type: 'add_text', payload: { text: value } });
     setTextMessage(result.message);
     if (result.ok) setTextValue('');
+  };
+
+  const saveNotes = async () => {
+    const value = notesValue.trim();
+    if (!value) {
+      setNotesMessage('Enter project notes before saving.');
+      return;
+    }
+
+    const parentAssetIds = Array.from(new Set(editorState.media.map((clip) => clip.assetId)));
+    setNotesSaving(true);
+    setNotesMessage('Saving notes through durable Asset Storage…');
+    try {
+      const confirmation = await persistAsset({
+        name: `${editorState.projectName} notes`,
+        kind: 'project_state',
+        projectName: editorState.projectName,
+        parentAssetIds,
+        metadata: {
+          noteText: value,
+          noteType: 'project_notes',
+          mediaCount: editorState.media.length,
+          textCount: editorState.text.length,
+          savedAt: Date.now(),
+        },
+      });
+      assetLibrary.registerDurableAsset(confirmation.asset);
+      setNotesMessage(`Project notes saved durably at ${new Date(confirmation.confirmedAt).toLocaleTimeString()}.`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Durable Asset Storage did not confirm the note.';
+      setNotesMessage(`Notes were not marked saved. ${reason}`);
+    } finally {
+      setNotesSaving(false);
+    }
   };
 
   const adjustVolume = async (level: number) => {
@@ -181,6 +220,22 @@ export default function ToolShelf({
                 </Pressable>
                 {!!textMessage && <Text style={styles.toolMessage}>{textMessage}</Text>}
                 <Text style={styles.boundary}>Success means the text item was added to shared editor project state at the current playhead. It does not claim rendered pixels or exported media exist.</Text>
+              </View>
+            ) : active.id === 'notes' ? (
+              <View style={styles.toolPanel}>
+                <TextInput
+                  style={[styles.input, styles.multilineInput]}
+                  value={notesValue}
+                  onChangeText={setNotesValue}
+                  placeholder="Project notes, continuity, edit decisions, or publish notes"
+                  placeholderTextColor="#6b7280"
+                  multiline
+                />
+                <Pressable style={[styles.actionButton, notesSaving && styles.disabledButton]} disabled={notesSaving} onPress={saveNotes}>
+                  <Text style={styles.actionButtonText}>{notesSaving ? 'Saving…' : 'Save notes durably'}</Text>
+                </Pressable>
+                {!!notesMessage && <Text style={styles.toolMessage}>{notesMessage}</Text>}
+                <Text style={styles.boundary}>Notes are registered in Asset Library only after the server returns durable storage evidence. Failed or unavailable storage leaves the note explicitly unconfirmed.</Text>
               </View>
             ) : active.id === 'audio' ? (
               <View style={styles.toolPanel}>
