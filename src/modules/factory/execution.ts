@@ -1,5 +1,7 @@
+import { assetLibrary } from '../assets/library';
 import { contentFactory, type FactoryLane, type PublishDestination } from './workflow';
 import { publisherClient, type PublishRequest } from './publisherClient';
+import { getRendererHealth, renderProject, type RendererHealth } from './rendererClient';
 
 const DESTINATION_IDS = [
   'youtube-primary',
@@ -9,6 +11,18 @@ const DESTINATION_IDS = [
 ] as const;
 
 export type YouTubeDestinationId = (typeof DESTINATION_IDS)[number];
+
+export interface FactoryRenderExecutionRequest {
+  laneId: string;
+  outputName: string;
+  projectName?: string;
+  mimeType?: string;
+}
+
+export interface FactoryRenderExecutionResult {
+  lane: FactoryLane;
+  renderer: RendererHealth;
+}
 
 export interface FactoryPublishExecutionRequest {
   laneId: string;
@@ -21,6 +35,40 @@ export interface FactoryPublishExecutionRequest {
 export interface FactoryPublishExecutionResult {
   lane: FactoryLane;
   destination: PublishDestination;
+}
+
+/**
+ * Execute the render boundary for one factory lane.
+ *
+ * A lane only advances to approval after the renderer returns a durable
+ * rendered-output asset whose provenance includes the linked editor project.
+ * Missing configuration, unhealthy renderer state, or incomplete evidence
+ * leaves the lane unchanged instead of manufacturing a render.
+ */
+export async function executeFactoryRender(
+  request: FactoryRenderExecutionRequest,
+): Promise<FactoryRenderExecutionResult> {
+  const lane = getFactoryLane(request.laneId);
+  if (!lane) throw new Error(`Unknown factory lane: ${request.laneId}`);
+  if (!lane.projectAssetId) {
+    throw new Error('Factory lane cannot render before an editor project asset is linked.');
+  }
+
+  const renderer = await getRendererHealth();
+  if (renderer.state !== 'connected') {
+    return { lane, renderer };
+  }
+
+  const confirmation = await renderProject({
+    projectAssetId: lane.projectAssetId,
+    outputName: request.outputName,
+    projectName: request.projectName,
+    mimeType: request.mimeType,
+  });
+
+  const durableAsset = assetLibrary.registerDurableAsset(confirmation.asset);
+  const updatedLane = contentFactory.attachRenderedOutput(request.laneId, durableAsset.id);
+  return { lane: updatedLane, renderer };
 }
 
 /**
