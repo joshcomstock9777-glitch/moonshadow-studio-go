@@ -32,6 +32,8 @@ export interface FactoryLane {
   renderedAssetId?: string;
   approvedAt?: number;
   destinationId?: string;
+  publishAttempts?: number;
+  lastPublishAttemptAt?: number;
   publishEvidence?: ExternalPublishEvidence;
   blocker?: string;
   updatedAt: number;
@@ -114,9 +116,16 @@ export class ContentFactory {
 
   beginPublish(laneId: string, destinationId: string): FactoryLane {
     return this.update(laneId, (lane) => {
-      if (lane.stage !== 'ready_to_publish' || !lane.approvedAt || !lane.renderedAssetId) {
+      const retryingBlockedPublish = lane.stage === 'blocked';
+      if (
+        (lane.stage !== 'ready_to_publish' && !retryingBlockedPublish) ||
+        !lane.approvedAt ||
+        !lane.renderedAssetId ||
+        lane.publishEvidence
+      ) {
         throw new Error('Lane is not approved and ready to publish.');
       }
+
       const destination = this.destinations.get(destinationId);
       if (!destination || destination.health !== 'connected') {
         return {
@@ -126,10 +135,13 @@ export class ContentFactory {
           blocker: destination?.healthReason || 'Publish destination is not live-connected.',
         };
       }
+
       return {
         ...lane,
         destinationId,
         stage: 'publishing',
+        publishAttempts: (lane.publishAttempts ?? 0) + 1,
+        lastPublishAttemptAt: Date.now(),
         blocker: undefined,
       };
     });
