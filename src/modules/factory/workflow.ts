@@ -78,22 +78,43 @@ export class ContentFactory {
   }
 
   attachProject(laneId: string, projectAssetId: string): FactoryLane {
-    return this.update(laneId, (lane) => ({
-      ...lane,
-      projectAssetId,
-      stage: 'editing',
-      blocker: undefined,
-    }));
+    return this.update(laneId, (lane) => {
+      this.assertNotPublished(lane);
+      if (lane.stage !== 'idea' && lane.stage !== 'editing') {
+        throw new Error('Editor project can only be linked while a lane is in idea or editing.');
+      }
+      return {
+        ...lane,
+        projectAssetId,
+        renderedAssetId: undefined,
+        approvedAt: undefined,
+        destinationId: undefined,
+        publishAttempts: undefined,
+        lastPublishAttemptAt: undefined,
+        publishEvidence: undefined,
+        stage: 'editing',
+        blocker: undefined,
+      };
+    });
   }
 
   attachRenderedOutput(laneId: string, renderedAssetId: string): FactoryLane {
     return this.update(laneId, (lane) => {
+      this.assertNotPublished(lane);
+      if (lane.stage !== 'editing' && lane.stage !== 'approval') {
+        throw new Error('Rendered output can only be attached while a lane is editing or awaiting approval.');
+      }
       if (!lane.projectAssetId) {
         throw new Error('Cannot attach rendered output before an editor project is linked.');
       }
       return {
         ...lane,
         renderedAssetId,
+        approvedAt: undefined,
+        destinationId: undefined,
+        publishAttempts: undefined,
+        lastPublishAttemptAt: undefined,
+        publishEvidence: undefined,
         stage: 'approval',
         blocker: undefined,
       };
@@ -102,6 +123,10 @@ export class ContentFactory {
 
   approve(laneId: string): FactoryLane {
     return this.update(laneId, (lane) => {
+      this.assertNotPublished(lane);
+      if (lane.stage !== 'approval') {
+        throw new Error('Lane can only be approved while awaiting approval.');
+      }
       if (!lane.renderedAssetId) {
         throw new Error('Cannot approve before a rendered output asset exists.');
       }
@@ -116,6 +141,7 @@ export class ContentFactory {
 
   beginPublish(laneId: string, destinationId: string): FactoryLane {
     return this.update(laneId, (lane) => {
+      this.assertNotPublished(lane);
       const retryingBlockedPublish = lane.stage === 'blocked';
       if (
         (lane.stage !== 'ready_to_publish' && !retryingBlockedPublish) ||
@@ -168,18 +194,30 @@ export class ContentFactory {
   }
 
   markPublishFailed(laneId: string, reason: string): FactoryLane {
-    return this.update(laneId, (lane) => ({
-      ...lane,
-      stage: 'blocked',
-      blocker: reason || 'External publisher failed without evidence.',
-    }));
+    return this.update(laneId, (lane) => {
+      this.assertNotPublished(lane);
+      if (lane.stage !== 'publishing') {
+        throw new Error('Publish failure can only be recorded for an active publish attempt.');
+      }
+      return {
+        ...lane,
+        stage: 'blocked',
+        blocker: reason || 'External publisher failed without evidence.',
+      };
+    });
+  }
+
+  private assertNotPublished(lane: FactoryLane) {
+    if (lane.stage === 'published' || lane.publishEvidence) {
+      throw new Error('Published lanes are immutable; create a new lane for revisions or republication.');
+    }
   }
 
   private update(laneId: string, updater: (lane: FactoryLane) => FactoryLane): FactoryLane {
     const existing = this.lanes.get(laneId);
     if (!existing) throw new Error(`Unknown factory lane: ${laneId}`);
     const updated = { ...updater({ ...existing }), updatedAt: Date.now() };
-    this.lanes.set(laneId, updated);
+    this.lanes.set(lane.id, lane);
     return { ...updated };
   }
 }
