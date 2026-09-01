@@ -21,6 +21,7 @@ interface HealthResponse {
   destinationId?: unknown;
   connected?: unknown;
   channelId?: unknown;
+  reason?: unknown;
 }
 
 interface PublishResponse {
@@ -55,11 +56,7 @@ export class PublisherClient {
     this.assertKnownDestination(destinationId);
 
     if (!this.isConfigured()) {
-      return {
-        id: destinationId,
-        label: destinationLabel(destinationId),
-        health: 'unknown',
-      };
+      return this.disconnected(destinationId, 'Publisher server is not configured.');
     }
 
     try {
@@ -71,13 +68,13 @@ export class PublisherClient {
         },
       );
 
+      const body = (await response.json().catch(() => ({}))) as HealthResponse;
       if (!response.ok) {
-        return this.disconnected(destinationId);
+        return this.disconnected(destinationId, healthReason(body.reason, response.status));
       }
 
-      const body = (await response.json()) as HealthResponse;
       if (body.destinationId !== destinationId || body.connected !== true || typeof body.channelId !== 'string' || !body.channelId) {
-        return this.disconnected(destinationId);
+        return this.disconnected(destinationId, healthReason(body.reason));
       }
 
       return {
@@ -87,7 +84,7 @@ export class PublisherClient {
         externalChannelId: body.channelId,
       };
     } catch {
-      return this.disconnected(destinationId);
+      return this.disconnected(destinationId, 'Publisher health check could not reach the server.');
     }
   }
 
@@ -142,11 +139,12 @@ export class PublisherClient {
     };
   }
 
-  private disconnected(destinationId: string): PublishDestination {
+  private disconnected(destinationId: string, healthReason?: string): PublishDestination {
     return {
       id: destinationId,
       label: destinationLabel(destinationId),
       health: 'disconnected',
+      healthReason,
     };
   }
 
@@ -154,6 +152,19 @@ export class PublisherClient {
     if (!DEFAULT_DESTINATIONS.has(destinationId)) {
       throw new Error(`Unknown publishing destination: ${destinationId}`);
     }
+  }
+}
+
+function healthReason(reason: unknown, status?: number): string {
+  switch (reason) {
+    case 'not_configured':
+      return 'YouTube OAuth is not configured for this destination.';
+    case 'oauth_failed':
+      return 'YouTube OAuth refresh failed for this destination.';
+    case 'channel_probe_failed':
+      return 'YouTube channel verification failed for this destination.';
+    default:
+      return status ? `Publisher health check failed (${status}).` : 'Publisher did not provide live connection evidence.';
   }
 }
 
