@@ -37,6 +37,7 @@ export interface EditorState {
 }
 
 type Listener = (state: EditorState) => void;
+type HistorySnapshot = Omit<EditorState, 'lastMessage' | 'isPlaying'>;
 
 const INITIAL_STATE: EditorState = {
   projectName: 'Untitled Studio Go Project',
@@ -52,12 +53,24 @@ const INITIAL_STATE: EditorState = {
   lastMessage: 'Editor ready. Load media to begin.',
 };
 
+const HISTORY_LIMIT = 50;
+
 export class EditorRuntime {
   private state: EditorState = INITIAL_STATE;
   private listeners = new Set<Listener>();
+  private undoStack: HistorySnapshot[] = [];
+  private redoStack: HistorySnapshot[] = [];
 
   getState(): EditorState {
     return this.state;
+  }
+
+  canUndo(): boolean {
+    return this.undoStack.length > 0;
+  }
+
+  canRedo(): boolean {
+    return this.redoStack.length > 0;
   }
 
   subscribe(listener: Listener): () => void {
@@ -75,6 +88,30 @@ export class EditorRuntime {
 
   private update(patch: Partial<EditorState>) {
     this.publish({ ...this.state, ...patch });
+  }
+
+  private snapshot(): HistorySnapshot {
+    return {
+      projectName: this.state.projectName,
+      media: this.state.media.map((clip) => ({ ...clip })),
+      text: this.state.text.map((item) => ({ ...item })),
+      selectedClipId: this.state.selectedClipId,
+      currentTime: this.state.currentTime,
+      duration: this.state.duration,
+      dirty: this.state.dirty,
+      lastSavedAt: this.state.lastSavedAt,
+      lastExportedAt: this.state.lastExportedAt,
+    };
+  }
+
+  private rememberEdit() {
+    this.undoStack.push(this.snapshot());
+    if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
+    this.redoStack = [];
+  }
+
+  private restore(snapshot: HistorySnapshot, message: string) {
+    this.publish({ ...snapshot, isPlaying: false, lastMessage: message });
   }
 
   private timelineDuration(media: EditorMediaItem[]): number {
@@ -102,6 +139,7 @@ export class EditorRuntime {
           volume: 1,
           muted: false,
         };
+        this.rememberEdit();
         const media = [...this.state.media, clip];
         const duration = this.timelineDuration(media);
         const message = `Loaded ${clip.name}; source provenance recorded as URI reference only.`;
@@ -127,6 +165,7 @@ export class EditorRuntime {
       case 'move_clip': {
         const index = this.state.media.findIndex((clip) => clip.id === cmd.payload.clipId);
         if (index < 0) return fail('Cannot move clip: clip was not found.');
+        this.rememberEdit();
         const media = [...this.state.media];
         media[index] = { ...media[index], start: Math.max(0, cmd.payload.toTime) };
         this.update({ media, duration: this.timelineDuration(media), dirty: true, lastMessage: 'Clip moved.' });
@@ -137,14 +176,10 @@ export class EditorRuntime {
         const splitAt = this.state.currentTime;
         const clipEnd = selected.start + selected.duration;
         if (splitAt <= selected.start || splitAt >= clipEnd) return fail('Cannot split: move the playhead inside the selected clip.');
+        this.rememberEdit();
         const leftDuration = splitAt - selected.start;
         const rightDuration = clipEnd - splitAt;
-        const right: EditorMediaItem = {
-          ...selected,
-          id: `clip-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          start: splitAt,
-          duration: rightDuration,
-        };
+        const right: EditorMediaItem = { ...selected, id: `clip-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, start: splitAt, duration: rightDuration };
         const media = this.state.media.flatMap((clip) => clip.id === selected.id ? [{ ...clip, duration: leftDuration }, right] : [clip]);
         const message = `Clip split at ${splitAt.toFixed(1)}s.`;
         this.update({ media, selectedClipId: right.id, duration: this.timelineDuration(media), dirty: true, lastMessage: message });
@@ -155,6 +190,7 @@ export class EditorRuntime {
         const trimAt = this.state.currentTime;
         const clipEnd = selected.start + selected.duration;
         if (trimAt <= selected.start || trimAt >= clipEnd) return fail('Cannot trim start: move the playhead inside the selected clip.');
+        this.rememberEdit();
         const media = this.state.media.map((clip) => clip.id === selected.id ? { ...clip, start: trimAt, duration: clipEnd - trimAt } : clip);
         const message = `Clip start trimmed to ${trimAt.toFixed(1)}s.`;
         this.update({ media, duration: this.timelineDuration(media), dirty: true, lastMessage: message });
@@ -165,6 +201,7 @@ export class EditorRuntime {
         const trimAt = this.state.currentTime;
         const clipEnd = selected.start + selected.duration;
         if (trimAt <= selected.start || trimAt >= clipEnd) return fail('Cannot trim end: move the playhead inside the selected clip.');
+        this.rememberEdit();
         const media = this.state.media.map((clip) => clip.id === selected.id ? { ...clip, duration: trimAt - selected.start } : clip);
         const duration = this.timelineDuration(media);
         const message = `Clip end trimmed to ${trimAt.toFixed(1)}s.`;
@@ -173,6 +210,7 @@ export class EditorRuntime {
       }
       case 'duplicate_clip': {
         if (!selected) return fail('Cannot duplicate: select a clip first.');
+        this.rememberEdit();
         const copy = { ...selected, id: `clip-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, start: selected.start + selected.duration };
         const media = [...this.state.media, copy];
         this.update({ media, duration: this.timelineDuration(media), selectedClipId: copy.id, dirty: true, lastMessage: 'Clip duplicated.' });
@@ -180,6 +218,7 @@ export class EditorRuntime {
       }
       case 'delete_clip': {
         if (!selected) return fail('Cannot delete: select a clip first.');
+        this.rememberEdit();
         const media = this.state.media.filter((clip) => clip.id !== selected.id);
         const duration = this.timelineDuration(media);
         this.update({ media, duration, selectedClipId: media[0]?.id || null, currentTime: Math.min(this.state.currentTime, duration), dirty: true, lastMessage: 'Clip deleted.' });
@@ -187,6 +226,7 @@ export class EditorRuntime {
       }
       case 'add_text': {
         if (!cmd.payload.text.trim()) return fail('Cannot add empty text.');
+        this.rememberEdit();
         const text = [...this.state.text, { id: `text-${Date.now()}`, text: cmd.payload.text.trim(), time: this.state.currentTime }];
         this.update({ text, dirty: true, lastMessage: 'Text added at playhead.' });
         return { ok: true, message: 'Text added at playhead.' };
@@ -194,12 +234,14 @@ export class EditorRuntime {
       case 'adjust_volume': {
         if (!selected) return fail('Cannot adjust volume: select a clip first.');
         const level = Math.max(0, Math.min(cmd.payload.level, 2));
+        this.rememberEdit();
         const media = this.state.media.map((clip) => clip.id === selected.id ? { ...clip, volume: level } : clip);
         this.update({ media, dirty: true, lastMessage: `Clip volume set to ${Math.round(level * 100)}%.` });
         return { ok: true, message: `Clip volume set to ${Math.round(level * 100)}%.` };
       }
       case 'mute_track': {
         if (!selected) return fail('Cannot mute: select a clip first.');
+        this.rememberEdit();
         const media = this.state.media.map((clip) => clip.id === selected.id ? { ...clip, muted: !clip.muted } : clip);
         this.update({ media, dirty: true, lastMessage: selected.muted ? 'Clip unmuted.' : 'Clip muted.' });
         return { ok: true, message: selected.muted ? 'Clip unmuted.' : 'Clip muted.' };
@@ -209,6 +251,7 @@ export class EditorRuntime {
         const fadeIn = Math.max(0, Math.min(cmd.payload.in ?? selected.fadeIn ?? 0, selected.duration));
         const fadeOut = Math.max(0, Math.min(cmd.payload.out ?? selected.fadeOut ?? 0, selected.duration));
         if (fadeIn + fadeOut > selected.duration) return fail('Cannot add fade: combined fade duration exceeds the selected clip.');
+        this.rememberEdit();
         const media = this.state.media.map((clip) => clip.id === selected.id ? { ...clip, fadeIn, fadeOut } : clip);
         const message = `Clip fades set to ${fadeIn.toFixed(1)}s in / ${fadeOut.toFixed(1)}s out.`;
         this.update({ media, dirty: true, lastMessage: message });
@@ -220,10 +263,7 @@ export class EditorRuntime {
         const memorySnapshot = assetLibrary.recordProjectSnapshot({ projectName: this.state.projectName, mediaAssetIds, mediaCount: this.state.media.length, textCount: this.state.text.length, duration: this.state.duration, savedAt: timestamp });
         const projectStateJson = JSON.stringify({ schemaVersion: 1, projectName: this.state.projectName, media: this.state.media, text: this.state.text, selectedClipId: this.state.selectedClipId, currentTime: this.state.currentTime, duration: this.state.duration, savedAt: timestamp });
         try {
-          const confirmation = await persistAsset({
-            name: `${this.state.projectName} state`, kind: 'project_state', projectName: this.state.projectName, parentAssetIds: mediaAssetIds,
-            metadata: { mediaCount: this.state.media.length, textCount: this.state.text.length, duration: this.state.duration, savedAt: timestamp, sourceMemoryAssetId: memorySnapshot.id, projectStateSchemaVersion: 1, projectStateJson },
-          });
+          const confirmation = await persistAsset({ name: `${this.state.projectName} state`, kind: 'project_state', projectName: this.state.projectName, parentAssetIds: mediaAssetIds, metadata: { mediaCount: this.state.media.length, textCount: this.state.text.length, duration: this.state.duration, savedAt: timestamp, sourceMemoryAssetId: memorySnapshot.id, projectStateSchemaVersion: 1, projectStateJson } });
           assetLibrary.registerDurableAsset(confirmation.asset);
           const message = 'Project state saved durably with reconstructable timeline/text payload, storage confirmation, and provenance evidence.';
           this.update({ dirty: false, lastSavedAt: confirmation.confirmedAt, lastMessage: message });
@@ -257,9 +297,20 @@ export class EditorRuntime {
         this.update({ currentTime: time, isPlaying: false, lastMessage: `Showing frame at ${time.toFixed(1)}s.` });
         return { ok: true, message: `Showing frame at ${time.toFixed(1)}s.` };
       }
-      case 'undo':
-      case 'redo':
-        return fail(`${cmd.type} is not connected to editor history yet.`);
+      case 'undo': {
+        const previous = this.undoStack.pop();
+        if (!previous) return fail('Nothing to undo.');
+        this.redoStack.push(this.snapshot());
+        this.restore(previous, 'Undid the last editor change.');
+        return { ok: true, message: 'Undid the last editor change.' };
+      }
+      case 'redo': {
+        const next = this.redoStack.pop();
+        if (!next) return fail('Nothing to redo.');
+        this.undoStack.push(this.snapshot());
+        this.restore(next, 'Redid the last editor change.');
+        return { ok: true, message: 'Redid the last editor change.' };
+      }
       default:
         return fail('Unsupported editor command.');
     }
