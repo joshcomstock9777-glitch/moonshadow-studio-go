@@ -4,6 +4,7 @@ import {
   ContentFactory,
   enforceDistinctYouTubeChannels,
 } from '../src/modules/factory/workflow.ts';
+import { PublisherClient } from '../src/modules/factory/publisherClient.ts';
 
 function readyFactory() {
   const factory = new ContentFactory([
@@ -121,4 +122,45 @@ test('demotes every connected destination that aliases the same YouTube channel'
   assert.match(horror?.healthReason ?? '', /youtube-primary/);
   assert.equal(variety?.health, 'connected');
   assert.equal(variety?.externalChannelId, 'variety-channel');
+});
+
+test('publisher health stays disconnected without explicit OAuth and live channel-probe evidence', async () => {
+  const client = new PublisherClient({
+    baseUrl: 'https://publisher.example.test',
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          destinationId: 'youtube-primary',
+          connected: true,
+          channelId: 'channel-primary',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+  });
+
+  const destination = await client.checkDestination('youtube-primary');
+  assert.equal(destination.health, 'disconnected');
+  assert.equal(destination.externalChannelId, undefined);
+  assert.match(destination.healthReason ?? '', /verified OAuth and live channel-probe evidence/);
+});
+
+test('publisher health is connected only after OAuth and channel probe are both verified', async () => {
+  const client = new PublisherClient({
+    baseUrl: 'https://publisher.example.test',
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          destinationId: 'youtube-primary',
+          connected: true,
+          authVerified: true,
+          channelProbeVerified: true,
+          channelId: 'channel-primary',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+  });
+
+  const destination = await client.checkDestination('youtube-primary');
+  assert.equal(destination.health, 'connected');
+  assert.equal(destination.externalChannelId, 'channel-primary');
 });
