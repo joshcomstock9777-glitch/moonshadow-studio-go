@@ -20,6 +20,8 @@ export interface PublishRequest {
 interface HealthResponse {
   destinationId?: unknown;
   connected?: unknown;
+  authVerified?: unknown;
+  channelProbeVerified?: unknown;
   channelId?: unknown;
   reason?: unknown;
 }
@@ -78,6 +80,13 @@ export class PublisherClient {
 
       if (body.destinationId !== destinationId || body.connected !== true || typeof body.channelId !== 'string' || !body.channelId) {
         return this.disconnected(destinationId, healthReason(body.reason));
+      }
+
+      if (body.authVerified !== true || body.channelProbeVerified !== true) {
+        return this.disconnected(
+          destinationId,
+          'Publisher did not provide verified OAuth and live channel-probe evidence.',
+        );
       }
 
       return {
