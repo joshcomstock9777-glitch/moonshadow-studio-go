@@ -59,6 +59,42 @@ test('rejects publication evidence that has no external YouTube URL', () => {
   assert.equal(factory.snapshot().lanes[0].stage, 'publishing');
 });
 
+test('rejects publication evidence whose YouTube URL points to a different video', () => {
+  const { factory, laneId } = readyFactory();
+
+  assert.throws(
+    () =>
+      factory.confirmPublished(laneId, {
+        destinationId: 'youtube-primary',
+        externalChannelId: 'channel-primary',
+        externalId: 'video-123',
+        externalUrl: 'https://www.youtube.com/watch?v=video-other',
+        confirmedAt: Date.now(),
+      }),
+    /not a matching HTTPS YouTube URL/,
+  );
+
+  assert.equal(factory.snapshot().lanes[0].stage, 'publishing');
+});
+
+test('rejects publication evidence hosted outside YouTube', () => {
+  const { factory, laneId } = readyFactory();
+
+  assert.throws(
+    () =>
+      factory.confirmPublished(laneId, {
+        destinationId: 'youtube-primary',
+        externalChannelId: 'channel-primary',
+        externalId: 'video-123',
+        externalUrl: 'https://example.test/watch?v=video-123',
+        confirmedAt: Date.now(),
+      }),
+    /not a matching HTTPS YouTube URL/,
+  );
+
+  assert.equal(factory.snapshot().lanes[0].stage, 'publishing');
+});
+
 test('accepts publication evidence only for the health-verified destination channel', () => {
   const { factory, laneId } = readyFactory();
 
@@ -73,6 +109,20 @@ test('accepts publication evidence only for the health-verified destination chan
   assert.equal(published.stage, 'published');
   assert.equal(published.publishEvidence?.externalChannelId, 'channel-primary');
   assert.equal(published.publishEvidence?.externalUrl, 'https://www.youtube.com/watch?v=video-123');
+});
+
+test('accepts a matching YouTube Shorts URL', () => {
+  const { factory, laneId } = readyFactory();
+
+  const published = factory.confirmPublished(laneId, {
+    destinationId: 'youtube-primary',
+    externalChannelId: 'channel-primary',
+    externalId: 'video-123',
+    externalUrl: 'https://youtube.com/shorts/video-123',
+    confirmedAt: Date.now(),
+  });
+
+  assert.equal(published.stage, 'published');
 });
 
 test('will not begin publish when connected health lacks concrete channel identity', () => {
