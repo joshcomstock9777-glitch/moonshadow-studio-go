@@ -17,6 +17,12 @@ import { Seat, TopMode, ToolPanelState, TranscriptEntry } from './src/types';
 import { createOrchestrator } from './src/modules/orchestrator';
 import { createEditorAdapter } from './src/modules/editor/adapter';
 import { createEditorRuntime } from './src/modules/editor/runtime';
+import { createEditorCompanion, CompanionMode } from './src/modules/editor/companion';
+import {
+  buildPathEditorPrompt,
+  parseCreatorEditorDirective,
+  parsePathEditorEnvelope,
+} from './src/modules/editor/pathCompanion';
 import { usePathMessage } from './src/hooks/usePathMessage';
 
 const DEFAULT_SEATS: Seat[] = [
@@ -25,6 +31,13 @@ const DEFAULT_SEATS: Seat[] = [
   { id: '3', name: 'Allie', color: '#3b82f6', status: 'listening', enabled: true, muted: false, isEditorCapable: true },
   { id: '4', name: 'Gemini', color: '#a855f7', status: 'offline', enabled: false, muted: false, isEditorCapable: false },
 ];
+
+interface PendingEditorRequest {
+  instruction: string;
+  mode: CompanionMode;
+  destructiveApproved: boolean;
+  approvedAt: number | null;
+}
 
 export default function App() {
   const [seats, setSeats] = useState<Seat[]>(DEFAULT_SEATS);
@@ -39,12 +52,11 @@ export default function App() {
   const orchestrator = useRef(createOrchestrator({ mode: 'natural', allowSilence: true })).current;
   const editorRuntime = useRef(createEditorRuntime()).current;
   const editorAdapter = useRef(createEditorAdapter(editorRuntime)).current;
+  const editorCompanion = useRef(createEditorCompanion(editorAdapter, 'suggest')).current;
+  const pendingEditorRequest = useRef<PendingEditorRequest | null>(null);
+  const seenCompanionEntries = useRef(new Set<string>());
   const { session: pathSession, isLoading: pathIsLoading, error: pathError, sendToAllie } = usePathMessage();
   const seenPathEntries = useRef(new Set<string>());
-
-  useEffect(() => {
-    void editorAdapter;
-  }, [editorAdapter]);
 
   const addTranscript = useCallback((seatId: string | 'human' | 'system', name: string, text: string) => {
     const entry: TranscriptEntry = {
@@ -63,12 +75,37 @@ export default function App() {
 
     pathSession.transcript.forEach((entry, index) => {
       const key = `${pathSession.correlationId}:${entry.turn ?? index}:${entry.createdAt ?? ''}`;
-      if (seenPathEntries.current.has(key)) return;
-      seenPathEntries.current.add(key);
-
       const identity = entry.identity || entry.from || 'Path';
-      const seat = DEFAULT_SEATS.find((candidate) => candidate.name.toLowerCase() === identity.toLowerCase());
-      addTranscript(seat?.id || 'system', identity, entry.body || '');
+
+      if (!seenPathEntries.current.has(key)) {
+        seenPathEntries.current.add(key);
+        const seat = DEFAULT_SEATS.find((candidate) => candidate.name.toLowerCase() === identity.toLowerCase());
+        addTranscript(seat?.id || 'system', identity, entry.body || '');
+      }
+
+      const pending = pendingEditorRequest.current;
+      if (!pending || seenCompanionEntries.current.has(key) || identity.toLowerCase() !== 'allie') return;
+      const envelope = parsePathEditorEnvelope(entry.body || '');
+      if (!envelope) return;
+
+      seenCompanionEntries.current.add(key);
+      editorCompanion.setMode(pending.mode);
+      void editorCompanion.run({
+        instruction: pending.instruction,
+        commands: envelope.commands,
+        rationale: envelope.rationale,
+        ...(pending.destructiveApproved && pending.approvedAt
+          ? { destructiveApproval: { approved: true as const, approvedAt: pending.approvedAt, approvedBy: 'creator' as const } }
+          : {}),
+      }).then((result) => {
+        if (pendingEditorRequest.current === pending) pendingEditorRequest.current = null;
+        const details = result.steps.map((step) => `${step.command.type}: ${step.message || (step.ok ? 'ok' : 'failed')}`).join(' · ');
+        addTranscript('system', 'Editor Companion', details ? `${result.summary} ${details}` : result.summary);
+      }).catch((error) => {
+        if (pendingEditorRequest.current === pending) pendingEditorRequest.current = null;
+        const message = error instanceof Error ? error.message : 'Editor Companion failed without a result.';
+        addTranscript('system', 'Editor Companion', `No editor completion was recorded. ${message}`);
+      });
     });
 
     const activeIdentity = pathSession.transcript[pathSession.transcript.length - 1]?.identity;
@@ -80,7 +117,7 @@ export default function App() {
       ...seat,
       status: pathSession.isActive && seat.id === activeSeat?.id ? 'thinking' : seat.enabled ? 'listening' : 'offline',
     })));
-  }, [pathSession, addTranscript]);
+  }, [pathSession, addTranscript, editorCompanion]);
 
   useEffect(() => {
     if (pathError) addTranscript('system', 'Path', pathError);
@@ -93,8 +130,26 @@ export default function App() {
     setInputText('');
     addTranscript('human', 'You', text);
     orchestrator.onHumanInput(text, seats, transcript);
+
+    const directive = parseCreatorEditorDirective(text);
+    if (directive) {
+      if (!directive.instruction) {
+        addTranscript('system', 'Editor Companion', 'No editor instruction was provided. Use /edit for a suggestion or /edit! to execute permitted edits.');
+        return;
+      }
+      const approvedAt = directive.destructiveApproved ? Date.now() : null;
+      pendingEditorRequest.current = {
+        instruction: directive.instruction,
+        mode: directive.mode,
+        destructiveApproved: directive.destructiveApproved,
+        approvedAt,
+      };
+      await sendToAllie(buildPathEditorPrompt(directive, editorRuntime.getState()));
+      return;
+    }
+
     await sendToAllie(text);
-  }, [inputText, pathIsLoading, seats, transcript, addTranscript, orchestrator, sendToAllie]);
+  }, [inputText, pathIsLoading, seats, transcript, addTranscript, orchestrator, sendToAllie, editorRuntime]);
 
   return (
     <SafeAreaView style={styles.safe}>
