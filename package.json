@@ -13,8 +13,9 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "check": "tsc --noEmit && npm run test:path-client",
+    "check": "tsc --noEmit && npm run test:path-client && npm run test:factory-publish",
     "test:path-client": "node --experimental-strip-types --test scripts/pathClient.contract.test.mjs",
+    "test:factory-publish": "node --experimental-strip-types --test scripts/factoryPublish.contract.test.mjs",
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
