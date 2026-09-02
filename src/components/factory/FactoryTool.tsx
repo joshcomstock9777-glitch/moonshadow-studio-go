@@ -29,17 +29,31 @@ const DESTINATION_IDS: YouTubeDestinationId[] = [
   'youtube-fixit',
 ];
 
+function latestFactoryLane(): FactoryLane | null {
+  const lanes = contentFactory.snapshot().lanes;
+  if (!lanes.length) return null;
+  return lanes.reduce((latest, candidate) => candidate.updatedAt > latest.updatedAt ? candidate : latest);
+}
+
 export default function FactoryTool({ editorRuntime }: FactoryToolProps) {
+  const restoredLane = useMemo(() => latestFactoryLane(), []);
   const [editorState, setEditorState] = useState<EditorState>(() => editorRuntime.getState());
-  const [lane, setLane] = useState<FactoryLane | null>(null);
+  const [lane, setLane] = useState<FactoryLane | null>(() => restoredLane);
   const [destinations, setDestinations] = useState<PublishDestination[]>(() => contentFactory.snapshot().destinations);
   const [storageHealth, setStorageHealth] = useState<AssetStorageHealth>({ state: 'unknown', checkedAt: 0 });
   const [rendererHealth, setRendererHealth] = useState<RendererHealth>({ state: 'unknown', checkedAt: 0 });
   const [laneTitle, setLaneTitle] = useState('');
-  const [publishTitle, setPublishTitle] = useState('');
+  const [publishTitle, setPublishTitle] = useState(() => restoredLane?.title || '');
   const [description, setDescription] = useState('');
-  const [destinationId, setDestinationId] = useState<YouTubeDestinationId>('youtube-primary');
-  const [message, setMessage] = useState('');
+  const [destinationId, setDestinationId] = useState<YouTubeDestinationId>(() => {
+    const restoredDestination = restoredLane?.destinationId;
+    return DESTINATION_IDS.includes(restoredDestination as YouTubeDestinationId)
+      ? restoredDestination as YouTubeDestinationId
+      : 'youtube-primary';
+  });
+  const [message, setMessage] = useState(() => restoredLane
+    ? `Restored active factory lane at stage ${restoredLane.stage}. No new render or publication has been claimed.`
+    : '');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => editorRuntime.subscribe(setEditorState), [editorRuntime]);
