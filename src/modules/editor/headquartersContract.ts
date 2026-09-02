@@ -61,6 +61,8 @@ export interface HeadquartersEditorResponse {
   };
 }
 
+type HeadquartersEditorErrorCode = NonNullable<HeadquartersEditorResponse['error']>['code'];
+
 const destructiveCommands = ['delete_clip'] as const satisfies readonly EditorCommand['type'][];
 const capabilitySet = new Set<EditorCommand['type']>(HEADQUARTERS_EDITOR_CAPABILITIES);
 
@@ -90,7 +92,7 @@ export function validateHeadquartersEditorRequest(
     return invalid(requestId, 'UNSUPPORTED_VERSION', `Unsupported editor contract version: ${String(candidate.version)}.`);
   }
 
-  if (!requestId || requestId === 'unknown') {
+  if (requestId === 'unknown') {
     return invalid('unknown', 'INVALID_REQUEST', 'Editor requestId is required.');
   }
 
@@ -170,7 +172,7 @@ export async function executeHeadquartersEditorRequest(
 
 function invalid(
   requestId: string,
-  code: HeadquartersEditorResponse['error']['code'],
+  code: HeadquartersEditorErrorCode,
   message: string,
 ): { ok: false; response: HeadquartersEditorResponse } {
   return {
