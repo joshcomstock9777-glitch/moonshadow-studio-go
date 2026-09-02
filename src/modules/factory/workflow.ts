@@ -229,7 +229,7 @@ export class ContentFactory {
     const existing = this.lanes.get(laneId);
     if (!existing) throw new Error(`Unknown factory lane: ${laneId}`);
     const updated = { ...updater({ ...existing }), updatedAt: Date.now() };
-    this.lanes.set(lane.id, updated);
+    this.lanes.set(laneId, updated);
     return { ...updated };
   }
 }
