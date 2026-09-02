@@ -3,7 +3,7 @@ import {
   type ExternalPublishEvidence,
   type PublishDestination,
   type PublishHealth,
-} from './workflow';
+} from './workflow.ts';
 
 export interface PublisherClientConfig {
   baseUrl?: string;
