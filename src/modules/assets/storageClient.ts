@@ -164,6 +164,9 @@ function validateDurableAsset(value: unknown, input: PersistAssetInput): StudioA
   if (candidate.storageState !== 'durable') {
     throw new Error('Asset storage server returned an asset without durable storage state.');
   }
+  if (input.uri && candidate.uri !== input.uri) {
+    throw new Error('Asset storage server returned a durable asset for a different URI.');
+  }
   if (input.mimeType && candidate.mimeType !== input.mimeType) {
     throw new Error('Asset storage server returned a mismatched MIME type.');
   }
@@ -172,6 +175,9 @@ function validateDurableAsset(value: unknown, input: PersistAssetInput): StudioA
   }
   if (input.projectName && candidate.provenance.projectName !== input.projectName) {
     throw new Error('Asset storage server returned provenance for a different project.');
+  }
+  if (input.kind === 'source_media' && input.uri && candidate.provenance.sourceUri !== input.uri) {
+    throw new Error('Asset storage server returned source-media provenance for a different URI.');
   }
   if (!sameAssetIds(candidate.provenance.parentAssetIds, input.parentAssetIds)) {
     throw new Error('Asset storage server returned provenance with mismatched parent assets.');
