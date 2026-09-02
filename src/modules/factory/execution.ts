@@ -1,5 +1,10 @@
 import { assetLibrary } from '../assets/library';
-import { contentFactory, type FactoryLane, type PublishDestination } from './workflow';
+import {
+  contentFactory,
+  enforceDistinctYouTubeChannels,
+  type FactoryLane,
+  type PublishDestination,
+} from './workflow';
 import { publisherClient, type PublishRequest } from './publisherClient';
 import { getRendererHealth, renderProject, type RendererHealth } from './rendererClient';
 
@@ -69,41 +74,6 @@ export async function executeFactoryRender(
   const durableAsset = assetLibrary.registerDurableAsset(confirmation.asset);
   const updatedLane = contentFactory.attachRenderedOutput(request.laneId, durableAsset.id);
   return { lane: updatedLane, renderer };
-}
-
-/**
- * A four-channel factory must not count multiple logical destination IDs that
- * resolve to the same external YouTube channel as separate live connections.
- * Every colliding assignment is demoted so the creator must repair OAuth or
- * destination configuration before publishing through either alias.
- */
-export function enforceDistinctYouTubeChannels(
-  destinations: PublishDestination[],
-): PublishDestination[] {
-  const channelOwners = new Map<string, string[]>();
-
-  for (const destination of destinations) {
-    if (destination.health !== 'connected' || !destination.externalChannelId) continue;
-    const owners = channelOwners.get(destination.externalChannelId) ?? [];
-    owners.push(destination.id);
-    channelOwners.set(destination.externalChannelId, owners);
-  }
-
-  return destinations.map((destination) => {
-    const channelId = destination.externalChannelId;
-    if (!channelId || destination.health !== 'connected') return { ...destination };
-    const owners = channelOwners.get(channelId) ?? [];
-    if (owners.length < 2) return { ...destination };
-
-    return {
-      ...destination,
-      health: 'disconnected',
-      externalChannelId: undefined,
-      healthReason: `YouTube channel identity is also assigned to: ${owners
-        .filter((id) => id !== destination.id)
-        .join(', ')}. Each Studio Go destination must map to a distinct channel.`,
-    };
-  });
 }
 
 /**
