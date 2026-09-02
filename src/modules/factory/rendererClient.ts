@@ -7,6 +7,7 @@ export interface RendererHealth {
   checkedAt: number;
   backend?: string;
   message?: string;
+  verificationId?: string;
 }
 
 export interface RenderRequest {
@@ -49,24 +50,34 @@ export async function getRendererHealth(): Promise<RendererHealth> {
 
     const body = (await response.json()) as {
       connected?: unknown;
+      renderVerified?: unknown;
+      verificationId?: unknown;
       backend?: unknown;
       message?: unknown;
     };
 
-    if (body.connected !== true) {
+    const backend = typeof body.backend === 'string' ? body.backend : undefined;
+    const message = typeof body.message === 'string' ? body.message : undefined;
+    const verificationId =
+      typeof body.verificationId === 'string' && body.verificationId.trim().length > 0
+        ? body.verificationId.trim()
+        : undefined;
+
+    if (body.connected !== true || body.renderVerified !== true || !verificationId) {
       return {
         state: 'disconnected',
         checkedAt: Date.now(),
-        backend: typeof body.backend === 'string' ? body.backend : undefined,
-        message: typeof body.message === 'string' ? body.message : 'Renderer did not confirm connectivity.',
+        backend,
+        message: message ?? 'Renderer has not proven a completed durable render.',
       };
     }
 
     return {
       state: 'connected',
       checkedAt: Date.now(),
-      backend: typeof body.backend === 'string' ? body.backend : undefined,
-      message: typeof body.message === 'string' ? body.message : undefined,
+      backend,
+      verificationId,
+      message,
     };
   } catch (error) {
     return {
@@ -105,15 +116,19 @@ export async function renderProject(input: RenderRequest): Promise<RenderConfirm
   if (body.rendered !== true) {
     throw new Error('Renderer did not confirm a completed render.');
   }
-  if (typeof body.externalRenderId !== 'string' || body.externalRenderId.length === 0) {
+  if (typeof body.externalRenderId !== 'string' || body.externalRenderId.trim().length === 0) {
     throw new Error('Renderer omitted external render evidence.');
   }
-  if (typeof body.confirmedAt !== 'number' || !Number.isFinite(body.confirmedAt)) {
+  if (typeof body.confirmedAt !== 'number' || !Number.isFinite(body.confirmedAt) || body.confirmedAt <= 0) {
     throw new Error('Renderer omitted a valid confirmation timestamp.');
   }
 
   const asset = validateRenderedAsset(body.asset, input.projectAssetId);
-  return { asset, externalRenderId: body.externalRenderId, confirmedAt: body.confirmedAt };
+  return {
+    asset,
+    externalRenderId: body.externalRenderId.trim(),
+    confirmedAt: body.confirmedAt,
+  };
 }
 
 function validateRenderedAsset(value: unknown, projectAssetId: string): StudioAsset {
