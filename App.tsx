@@ -13,6 +13,7 @@ import {
 import AIRoomStrip from './src/components/layout/AIRoomStrip';
 import EditorSurface from './src/components/layout/EditorSurface';
 import ToolShelf from './src/components/layout/ToolShelf';
+import FactoryTool from './src/components/factory/FactoryTool';
 import { Seat, TopMode, ToolPanelState, TranscriptEntry } from './src/types';
 import { createOrchestrator } from './src/modules/orchestrator';
 import { createEditorAdapter } from './src/modules/editor/adapter';
@@ -45,6 +46,7 @@ export default function App() {
   const [topMode, setTopMode] = useState<TopMode>('room');
   const [toolState, setToolState] = useState<ToolPanelState>('collapsed');
   const [activeToolTab, setActiveToolTab] = useState('markup');
+  const [factoryOpen, setFactoryOpen] = useState(false);
   const [inputText, setInputText] = useState('');
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [currentSpeakerId, setCurrentSpeakerId] = useState<string | null>(null);
@@ -166,18 +168,21 @@ export default function App() {
         />
 
         <View style={styles.editorWrap}>
-          <EditorSurface runtime={editorRuntime} />
+          {factoryOpen ? <FactoryTool editorRuntime={editorRuntime} /> : <EditorSurface runtime={editorRuntime} />}
         </View>
 
-        <ToolShelf
+        {!factoryOpen && <ToolShelf
           state={toolState}
           onStateChange={setToolState}
           activeTab={activeToolTab}
           onTabChange={setActiveToolTab}
           editorRuntime={editorRuntime}
-        />
+        />}
 
         <View style={styles.talkBar}>
+          <Pressable style={[styles.factoryBtn, factoryOpen && styles.factoryBtnActive]} onPress={() => setFactoryOpen((value) => !value)}>
+            <Text style={[styles.factoryText, factoryOpen && styles.factoryTextActive]}>{factoryOpen ? 'Editor' : 'Factory'}</Text>
+          </Pressable>
           <Pressable style={styles.micBtn}>
             <Text style={styles.micIcon}>🎙</Text>
           </Pressable>
@@ -204,6 +209,10 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   editorWrap: { flex: 1 },
   talkBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#111113', borderTopWidth: 1, borderTopColor: '#1f1f23', gap: 10 },
+  factoryBtn: { height: 36, borderRadius: 10, borderWidth: 1, borderColor: '#4b5563', paddingHorizontal: 10, justifyContent: 'center', alignItems: 'center' },
+  factoryBtnActive: { backgroundColor: '#f59e0b', borderColor: '#f59e0b' },
+  factoryText: { color: '#d1d5db', fontSize: 11, fontWeight: '800' },
+  factoryTextActive: { color: '#000' },
   micBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#1c1c1f', justifyContent: 'center', alignItems: 'center' },
   micIcon: { fontSize: 18 },
   input: { flex: 1, height: 40, backgroundColor: '#1c1c1f', borderRadius: 20, paddingHorizontal: 16, color: '#e5e5e5', fontSize: 15 },
