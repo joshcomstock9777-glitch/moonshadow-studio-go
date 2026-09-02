@@ -14,6 +14,7 @@ import AIRoomStrip from './src/components/layout/AIRoomStrip';
 import EditorSurface from './src/components/layout/EditorSurface';
 import ToolShelf from './src/components/layout/ToolShelf';
 import FactoryTool from './src/components/factory/FactoryTool';
+import AssetLibraryTool from './src/components/assets/AssetLibraryTool';
 import { Seat, TopMode, ToolPanelState, TranscriptEntry } from './src/types';
 import { createOrchestrator } from './src/modules/orchestrator';
 import { createEditorAdapter } from './src/modules/editor/adapter';
@@ -33,6 +34,8 @@ const DEFAULT_SEATS: Seat[] = [
   { id: '4', name: 'Gemini', color: '#a855f7', status: 'offline', enabled: false, muted: false, isEditorCapable: false },
 ];
 
+type StudioSurface = 'editor' | 'factory' | 'assets';
+
 interface PendingEditorRequest {
   instruction: string;
   mode: CompanionMode;
@@ -46,7 +49,7 @@ export default function App() {
   const [topMode, setTopMode] = useState<TopMode>('room');
   const [toolState, setToolState] = useState<ToolPanelState>('collapsed');
   const [activeToolTab, setActiveToolTab] = useState('markup');
-  const [factoryOpen, setFactoryOpen] = useState(false);
+  const [studioSurface, setStudioSurface] = useState<StudioSurface>('editor');
   const [inputText, setInputText] = useState('');
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [currentSpeakerId, setCurrentSpeakerId] = useState<string | null>(null);
@@ -168,10 +171,16 @@ export default function App() {
         />
 
         <View style={styles.editorWrap}>
-          {factoryOpen ? <FactoryTool editorRuntime={editorRuntime} /> : <EditorSurface runtime={editorRuntime} />}
+          {studioSurface === 'factory' ? (
+            <FactoryTool editorRuntime={editorRuntime} />
+          ) : studioSurface === 'assets' ? (
+            <AssetLibraryTool editorRuntime={editorRuntime} onOpenEditor={() => setStudioSurface('editor')} />
+          ) : (
+            <EditorSurface runtime={editorRuntime} />
+          )}
         </View>
 
-        {!factoryOpen && <ToolShelf
+        {studioSurface === 'editor' && <ToolShelf
           state={toolState}
           onStateChange={setToolState}
           activeTab={activeToolTab}
@@ -180,8 +189,17 @@ export default function App() {
         />}
 
         <View style={styles.talkBar}>
-          <Pressable style={[styles.factoryBtn, factoryOpen && styles.factoryBtnActive]} onPress={() => setFactoryOpen((value) => !value)}>
-            <Text style={[styles.factoryText, factoryOpen && styles.factoryTextActive]}>{factoryOpen ? 'Editor' : 'Factory'}</Text>
+          <Pressable
+            style={[styles.surfaceBtn, studioSurface === 'factory' && styles.surfaceBtnActive]}
+            onPress={() => setStudioSurface((value) => value === 'factory' ? 'editor' : 'factory')}
+          >
+            <Text style={[styles.surfaceText, studioSurface === 'factory' && styles.surfaceTextActive]}>{studioSurface === 'factory' ? 'Editor' : 'Factory'}</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.surfaceBtn, studioSurface === 'assets' && styles.surfaceBtnActive]}
+            onPress={() => setStudioSurface((value) => value === 'assets' ? 'editor' : 'assets')}
+          >
+            <Text style={[styles.surfaceText, studioSurface === 'assets' && styles.surfaceTextActive]}>{studioSurface === 'assets' ? 'Editor' : 'Assets'}</Text>
           </Pressable>
           <Pressable style={styles.micBtn}>
             <Text style={styles.micIcon}>🎙</Text>
@@ -208,11 +226,11 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#0a0a0b' },
   root: { flex: 1 },
   editorWrap: { flex: 1 },
-  talkBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#111113', borderTopWidth: 1, borderTopColor: '#1f1f23', gap: 10 },
-  factoryBtn: { height: 36, borderRadius: 10, borderWidth: 1, borderColor: '#4b5563', paddingHorizontal: 10, justifyContent: 'center', alignItems: 'center' },
-  factoryBtnActive: { backgroundColor: '#f59e0b', borderColor: '#f59e0b' },
-  factoryText: { color: '#d1d5db', fontSize: 11, fontWeight: '800' },
-  factoryTextActive: { color: '#000' },
+  talkBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#111113', borderTopWidth: 1, borderTopColor: '#1f1f23', gap: 8 },
+  surfaceBtn: { height: 36, borderRadius: 10, borderWidth: 1, borderColor: '#4b5563', paddingHorizontal: 9, justifyContent: 'center', alignItems: 'center' },
+  surfaceBtnActive: { backgroundColor: '#f59e0b', borderColor: '#f59e0b' },
+  surfaceText: { color: '#d1d5db', fontSize: 10, fontWeight: '800' },
+  surfaceTextActive: { color: '#000' },
   micBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#1c1c1f', justifyContent: 'center', alignItems: 'center' },
   micIcon: { fontSize: 18 },
   input: { flex: 1, height: 40, backgroundColor: '#1c1c1f', borderRadius: 20, paddingHorizontal: 16, color: '#e5e5e5', fontSize: 15 },
