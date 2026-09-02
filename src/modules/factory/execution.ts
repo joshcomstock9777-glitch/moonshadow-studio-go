@@ -1,5 +1,10 @@
 import { assetLibrary } from '../assets/library';
-import { contentFactory, type FactoryLane, type PublishDestination } from './workflow';
+import {
+  contentFactory,
+  enforceDistinctYouTubeChannels,
+  type FactoryLane,
+  type PublishDestination,
+} from './workflow';
 import { publisherClient, type PublishRequest } from './publisherClient';
 import { getRendererHealth, renderProject, type RendererHealth } from './rendererClient';
 
@@ -74,12 +79,14 @@ export async function executeFactoryRender(
 /**
  * Refresh all four YouTube destinations against the configured server-side
  * publisher. No destination is promoted to connected unless the publisher
- * health endpoint returns matching live channel evidence.
+ * health endpoint returns matching live channel evidence, and duplicate
+ * channel assignments are rejected rather than counted as four destinations.
  */
 export async function refreshYouTubeDestinationHealth(): Promise<PublishDestination[]> {
-  const destinations = await Promise.all(
+  const probed = await Promise.all(
     DESTINATION_IDS.map((destinationId) => publisherClient.checkDestination(destinationId)),
   );
+  const destinations = enforceDistinctYouTubeChannels(probed);
 
   for (const destination of destinations) {
     contentFactory.registerDestination(destination);
@@ -93,13 +100,22 @@ export async function refreshYouTubeDestinationHealth(): Promise<PublishDestinat
  *
  * The lane only reaches `published` through ContentFactory.confirmPublished,
  * after PublisherClient returns external publication evidence. Any missing
- * health, server error, or incomplete evidence leaves the lane blocked.
+ * health, server error, duplicate channel assignment, or incomplete evidence
+ * leaves the lane blocked.
  */
 export async function executeFactoryPublish(
   request: FactoryPublishExecutionRequest,
 ): Promise<FactoryPublishExecutionResult> {
-  const destination = await publisherClient.checkDestination(request.destinationId);
-  contentFactory.registerDestination(destination);
+  const probedDestination = await publisherClient.checkDestination(request.destinationId);
+  const existingDestinations = contentFactory
+    .snapshot()
+    .destinations.filter((destination) => destination.id !== request.destinationId);
+  const reconciled = enforceDistinctYouTubeChannels([...existingDestinations, probedDestination]);
+  const destination = reconciled.find((candidate) => candidate.id === request.destinationId) ?? probedDestination;
+
+  for (const candidate of reconciled) {
+    contentFactory.registerDestination(candidate);
+  }
 
   const publishingLane = contentFactory.beginPublish(request.laneId, request.destinationId);
   if (publishingLane.stage !== 'publishing') {

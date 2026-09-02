@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ContentFactory } from '../src/modules/factory/workflow.ts';
+import {
+  ContentFactory,
+  enforceDistinctYouTubeChannels,
+} from '../src/modules/factory/workflow.ts';
 
 function readyFactory() {
   const factory = new ContentFactory([
@@ -64,4 +67,39 @@ test('will not begin publish when connected health lacks concrete channel identi
   const blocked = factory.beginPublish(lane.id, 'youtube-primary');
   assert.equal(blocked.stage, 'blocked');
   assert.match(blocked.blocker ?? '', /verified channel identity/);
+});
+
+test('demotes every connected destination that aliases the same YouTube channel', () => {
+  const reconciled = enforceDistinctYouTubeChannels([
+    {
+      id: 'youtube-primary',
+      label: 'YouTube Primary',
+      health: 'connected',
+      externalChannelId: 'same-channel',
+    },
+    {
+      id: 'youtube-horror',
+      label: 'YouTube Horror',
+      health: 'connected',
+      externalChannelId: 'same-channel',
+    },
+    {
+      id: 'youtube-variety',
+      label: 'YouTube Variety',
+      health: 'connected',
+      externalChannelId: 'variety-channel',
+    },
+  ]);
+
+  const primary = reconciled.find((destination) => destination.id === 'youtube-primary');
+  const horror = reconciled.find((destination) => destination.id === 'youtube-horror');
+  const variety = reconciled.find((destination) => destination.id === 'youtube-variety');
+
+  assert.equal(primary?.health, 'disconnected');
+  assert.equal(primary?.externalChannelId, undefined);
+  assert.match(primary?.healthReason ?? '', /youtube-horror/);
+  assert.equal(horror?.health, 'disconnected');
+  assert.match(horror?.healthReason ?? '', /youtube-primary/);
+  assert.equal(variety?.health, 'connected');
+  assert.equal(variety?.externalChannelId, 'variety-channel');
 });

@@ -45,6 +45,35 @@ export interface FactorySnapshot {
   destinations: PublishDestination[];
 }
 
+export function enforceDistinctYouTubeChannels(
+  destinations: PublishDestination[],
+): PublishDestination[] {
+  const channelOwners = new Map<string, string[]>();
+
+  for (const destination of destinations) {
+    if (destination.health !== 'connected' || !destination.externalChannelId) continue;
+    const owners = channelOwners.get(destination.externalChannelId) ?? [];
+    owners.push(destination.id);
+    channelOwners.set(destination.externalChannelId, owners);
+  }
+
+  return destinations.map((destination) => {
+    const channelId = destination.externalChannelId;
+    if (!channelId || destination.health !== 'connected') return { ...destination };
+    const owners = channelOwners.get(channelId) ?? [];
+    if (owners.length < 2) return { ...destination };
+
+    const { externalChannelId: _discardedChannelId, ...rest } = destination;
+    return {
+      ...rest,
+      health: 'disconnected',
+      healthReason: `YouTube channel identity is also assigned to: ${owners
+        .filter((id) => id !== destination.id)
+        .join(', ')}. Each Studio Go destination must map to a distinct channel.`,
+    };
+  });
+}
+
 export class ContentFactory {
   private lanes = new Map<string, FactoryLane>();
   private destinations = new Map<string, PublishDestination>();
