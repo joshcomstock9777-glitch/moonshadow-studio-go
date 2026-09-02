@@ -1,9 +1,9 @@
-import { EditorCommand, EditorAdapter } from '../../types.ts';
-import {
+import type { EditorCommand, EditorAdapter } from '../../types.ts';
+import { EditorCompanion } from './companion.ts';
+import type {
   CompanionMode,
   CompanionRunResult,
   DestructiveApproval,
-  EditorCompanion,
 } from './companion.ts';
 
 export const HEADQUARTERS_EDITOR_CONTRACT_VERSION = '1.0' as const;
