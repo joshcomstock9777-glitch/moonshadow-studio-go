@@ -1,4 +1,4 @@
-import { EditorCommand, EditorAdapter } from '../../types.ts';
+import type { EditorCommand, EditorAdapter } from '../../types.ts';
 
 export type CompanionMode = 'suggest' | 'execute';
 
