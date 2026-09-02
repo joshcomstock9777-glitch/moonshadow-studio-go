@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { assetLibrary } from '../../modules/assets/library';
+import {
+  getAssetStorageHealth,
+  type AssetStorageHealth,
+} from '../../modules/assets/storageClient';
 import { EditorRuntime, EditorState } from '../../modules/editor/runtime';
 import {
   executeFactoryPublish,
@@ -8,6 +12,10 @@ import {
   refreshYouTubeDestinationHealth,
   type YouTubeDestinationId,
 } from '../../modules/factory/execution';
+import {
+  getRendererHealth,
+  type RendererHealth,
+} from '../../modules/factory/rendererClient';
 import { contentFactory, type FactoryLane, type PublishDestination } from '../../modules/factory/workflow';
 
 interface FactoryToolProps {
@@ -25,6 +33,8 @@ export default function FactoryTool({ editorRuntime }: FactoryToolProps) {
   const [editorState, setEditorState] = useState<EditorState>(() => editorRuntime.getState());
   const [lane, setLane] = useState<FactoryLane | null>(null);
   const [destinations, setDestinations] = useState<PublishDestination[]>(() => contentFactory.snapshot().destinations);
+  const [storageHealth, setStorageHealth] = useState<AssetStorageHealth>({ state: 'unknown', checkedAt: 0 });
+  const [rendererHealth, setRendererHealth] = useState<RendererHealth>({ state: 'unknown', checkedAt: 0 });
   const [laneTitle, setLaneTitle] = useState('');
   const [publishTitle, setPublishTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -37,6 +47,11 @@ export default function FactoryTool({ editorRuntime }: FactoryToolProps) {
   const selectedDestination = useMemo(
     () => destinations.find((destination) => destination.id === destinationId),
     [destinations, destinationId],
+  );
+
+  const connectedDestinations = useMemo(
+    () => destinations.filter((destination) => destination.health === 'connected').length,
+    [destinations],
   );
 
   const createLane = () => {
@@ -78,6 +93,7 @@ export default function FactoryTool({ editorRuntime }: FactoryToolProps) {
         projectName: editorState.projectName,
         mimeType: 'video/mp4',
       });
+      setRendererHealth(result.renderer);
       setLane(result.lane);
       setMessage(result.lane.stage === 'approval'
         ? 'Renderer returned durable output evidence. Lane is awaiting creator approval.'
@@ -100,15 +116,21 @@ export default function FactoryTool({ editorRuntime }: FactoryToolProps) {
     }
   };
 
-  const refreshHealth = async () => {
+  const refreshProductionReadiness = async () => {
     setBusy(true);
     try {
-      const live = await refreshYouTubeDestinationHealth();
-      setDestinations(live);
-      const connected = live.filter((destination) => destination.health === 'connected').length;
-      setMessage(`YouTube destination health refreshed from the server: ${connected}/4 live-connected.`);
+      const [storage, renderer, liveDestinations] = await Promise.all([
+        getAssetStorageHealth(),
+        getRendererHealth(),
+        refreshYouTubeDestinationHealth(),
+      ]);
+      setStorageHealth(storage);
+      setRendererHealth(renderer);
+      setDestinations(liveDestinations);
+      const connected = liveDestinations.filter((destination) => destination.health === 'connected').length;
+      setMessage(`Production readiness refreshed from live endpoints: storage ${storage.state}, renderer ${renderer.state}, YouTube ${connected}/4 connected.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Destination health refresh failed.');
+      setMessage(error instanceof Error ? error.message : 'Production readiness refresh failed.');
     } finally {
       setBusy(false);
     }
@@ -145,6 +167,29 @@ export default function FactoryTool({ editorRuntime }: FactoryToolProps) {
       <Text style={styles.heading}>Executable Content Factory</Text>
       <Text style={styles.boundary}>A lane advances only when durable project, renderer, approval, and external publisher evidence are present.</Text>
 
+      <Pressable style={[styles.secondary, busy && styles.disabled]} disabled={busy} onPress={refreshProductionReadiness}>
+        <Text style={styles.secondaryText}>Refresh production readiness</Text>
+      </Pressable>
+      <View style={styles.readinessGrid}>
+        <View style={styles.readinessCard}>
+          <Text style={styles.destinationText}>Durable storage</Text>
+          <Text style={storageHealth.state === 'connected' ? styles.good : styles.blocker}>{storageHealth.state}</Text>
+          {!!storageHealth.backend && <Text style={styles.value}>{storageHealth.backend}</Text>}
+          {!!storageHealth.message && <Text style={styles.boundary}>{storageHealth.message}</Text>}
+        </View>
+        <View style={styles.readinessCard}>
+          <Text style={styles.destinationText}>Renderer</Text>
+          <Text style={rendererHealth.state === 'connected' ? styles.good : styles.blocker}>{rendererHealth.state}</Text>
+          {!!rendererHealth.backend && <Text style={styles.value}>{rendererHealth.backend}</Text>}
+          {!!rendererHealth.message && <Text style={styles.boundary}>{rendererHealth.message}</Text>}
+        </View>
+        <View style={styles.readinessCard}>
+          <Text style={styles.destinationText}>YouTube destinations</Text>
+          <Text style={connectedDestinations === 4 ? styles.good : styles.blocker}>{connectedDestinations}/4 connected</Text>
+          <Text style={styles.boundary}>Each destination still requires its own verified channel identity.</Text>
+        </View>
+      </View>
+
       {!lane ? <>
         <TextInput style={styles.input} value={laneTitle} onChangeText={setLaneTitle} placeholder="Lane title" placeholderTextColor="#6b7280" />
         <Pressable style={styles.primary} onPress={createLane}><Text style={styles.primaryText}>Create production lane</Text></Pressable>
@@ -162,7 +207,6 @@ export default function FactoryTool({ editorRuntime }: FactoryToolProps) {
           <Pressable style={[styles.primary, (busy || lane.stage !== 'approval') && styles.disabled]} disabled={busy || lane.stage !== 'approval'} onPress={approveLane}><Text style={styles.primaryText}>Approve</Text></Pressable>
         </View>
 
-        <Pressable style={[styles.secondary, busy && styles.disabled]} disabled={busy} onPress={refreshHealth}><Text style={styles.secondaryText}>Refresh 4 YouTube destinations</Text></Pressable>
         <View style={styles.destinationGrid}>
           {DESTINATION_IDS.map((id) => {
             const destination = destinations.find((item) => item.id === id);
@@ -203,6 +247,8 @@ const styles = StyleSheet.create({
   value: { color: '#d1d5db', fontSize: 11 },
   blocker: { color: '#fca5a5', fontSize: 10 },
   good: { color: '#86efac', fontSize: 10 },
+  readinessGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center' },
+  readinessCard: { borderRadius: 8, borderWidth: 1, borderColor: '#374151', paddingHorizontal: 8, paddingVertical: 7, minWidth: '46%', flexGrow: 1, gap: 2 },
   destinationGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center' },
   destination: { borderRadius: 8, borderWidth: 1, borderColor: '#374151', paddingHorizontal: 8, paddingVertical: 6, minWidth: '46%' },
   destinationSelected: { borderColor: '#f59e0b' },
