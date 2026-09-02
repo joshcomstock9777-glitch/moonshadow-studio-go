@@ -145,6 +145,7 @@ export class PublisherClient {
 
     return {
       destinationId: request.destinationId,
+      externalChannelId: body.channelId,
       externalId: body.externalId,
       externalUrl,
       confirmedAt: body.confirmedAt,
