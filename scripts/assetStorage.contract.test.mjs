@@ -77,3 +77,49 @@ test('rejects durable confirmation for a different asset name', async () => {
   globalThis.fetch = async () => storageResponse(responseAsset({ name: 'Unrelated project state' }));
   await assert.rejects(() => persistAsset(input), /requested name/);
 });
+
+test('rejects durable confirmation for a different requested URI', async () => {
+  const uriInput = {
+    name: 'Imported clip',
+    kind: 'source_media',
+    uri: 'file:///requested.mp4',
+    parentAssetIds: [],
+  };
+  globalThis.fetch = async () => storageResponse(responseAsset({
+    name: 'Imported clip',
+    kind: 'source_media',
+    uri: 'file:///other.mp4',
+    provenance: {
+      source: 'user_uri',
+      sourceUri: 'file:///requested.mp4',
+      createdAt: Date.now(),
+      parentAssetIds: [],
+    },
+    metadata: {},
+  }));
+
+  await assert.rejects(() => persistAsset(uriInput), /different URI/);
+});
+
+test('rejects source media whose provenance URI does not match the requested URI', async () => {
+  const uriInput = {
+    name: 'Imported clip',
+    kind: 'source_media',
+    uri: 'file:///requested.mp4',
+    parentAssetIds: [],
+  };
+  globalThis.fetch = async () => storageResponse(responseAsset({
+    name: 'Imported clip',
+    kind: 'source_media',
+    uri: 'file:///requested.mp4',
+    provenance: {
+      source: 'user_uri',
+      sourceUri: 'file:///other.mp4',
+      createdAt: Date.now(),
+      parentAssetIds: [],
+    },
+    metadata: {},
+  }));
+
+  await assert.rejects(() => persistAsset(uriInput), /source-media provenance for a different URI/);
+});
