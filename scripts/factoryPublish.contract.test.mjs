@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { enforceDistinctYouTubeChannels } from '../src/modules/factory/execution.ts';
-import { ContentFactory } from '../src/modules/factory/workflow.ts';
+import {
+  ContentFactory,
+  enforceDistinctYouTubeChannels,
+} from '../src/modules/factory/workflow.ts';
 
 function readyFactory() {
   const factory = new ContentFactory([
