@@ -32,10 +32,13 @@ export interface CompanionRunResult {
 const destructive = new Set<EditorCommand['type']>(['delete_clip']);
 
 export class EditorCompanion {
-  constructor(
-    private readonly adapter: EditorAdapter,
-    private mode: CompanionMode = 'suggest',
-  ) {}
+  private readonly adapter: EditorAdapter;
+  private mode: CompanionMode;
+
+  constructor(adapter: EditorAdapter, mode: CompanionMode = 'suggest') {
+    this.adapter = adapter;
+    this.mode = mode;
+  }
 
   setMode(mode: CompanionMode) {
     this.mode = mode;
