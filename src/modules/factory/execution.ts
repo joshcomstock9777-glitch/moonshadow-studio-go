@@ -72,14 +72,51 @@ export async function executeFactoryRender(
 }
 
 /**
+ * A four-channel factory must not count multiple logical destination IDs that
+ * resolve to the same external YouTube channel as separate live connections.
+ * Every colliding assignment is demoted so the creator must repair OAuth or
+ * destination configuration before publishing through either alias.
+ */
+export function enforceDistinctYouTubeChannels(
+  destinations: PublishDestination[],
+): PublishDestination[] {
+  const channelOwners = new Map<string, string[]>();
+
+  for (const destination of destinations) {
+    if (destination.health !== 'connected' || !destination.externalChannelId) continue;
+    const owners = channelOwners.get(destination.externalChannelId) ?? [];
+    owners.push(destination.id);
+    channelOwners.set(destination.externalChannelId, owners);
+  }
+
+  return destinations.map((destination) => {
+    const channelId = destination.externalChannelId;
+    if (!channelId || destination.health !== 'connected') return { ...destination };
+    const owners = channelOwners.get(channelId) ?? [];
+    if (owners.length < 2) return { ...destination };
+
+    return {
+      ...destination,
+      health: 'disconnected',
+      externalChannelId: undefined,
+      healthReason: `YouTube channel identity is also assigned to: ${owners
+        .filter((id) => id !== destination.id)
+        .join(', ')}. Each Studio Go destination must map to a distinct channel.`,
+    };
+  });
+}
+
+/**
  * Refresh all four YouTube destinations against the configured server-side
  * publisher. No destination is promoted to connected unless the publisher
- * health endpoint returns matching live channel evidence.
+ * health endpoint returns matching live channel evidence, and duplicate
+ * channel assignments are rejected rather than counted as four destinations.
  */
 export async function refreshYouTubeDestinationHealth(): Promise<PublishDestination[]> {
-  const destinations = await Promise.all(
+  const probed = await Promise.all(
     DESTINATION_IDS.map((destinationId) => publisherClient.checkDestination(destinationId)),
   );
+  const destinations = enforceDistinctYouTubeChannels(probed);
 
   for (const destination of destinations) {
     contentFactory.registerDestination(destination);
@@ -93,13 +130,22 @@ export async function refreshYouTubeDestinationHealth(): Promise<PublishDestinat
  *
  * The lane only reaches `published` through ContentFactory.confirmPublished,
  * after PublisherClient returns external publication evidence. Any missing
- * health, server error, or incomplete evidence leaves the lane blocked.
+ * health, server error, duplicate channel assignment, or incomplete evidence
+ * leaves the lane blocked.
  */
 export async function executeFactoryPublish(
   request: FactoryPublishExecutionRequest,
 ): Promise<FactoryPublishExecutionResult> {
-  const destination = await publisherClient.checkDestination(request.destinationId);
-  contentFactory.registerDestination(destination);
+  const probedDestination = await publisherClient.checkDestination(request.destinationId);
+  const existingDestinations = contentFactory
+    .snapshot()
+    .destinations.filter((destination) => destination.id !== request.destinationId);
+  const reconciled = enforceDistinctYouTubeChannels([...existingDestinations, probedDestination]);
+  const destination = reconciled.find((candidate) => candidate.id === request.destinationId) ?? probedDestination;
+
+  for (const candidate of reconciled) {
+    contentFactory.registerDestination(candidate);
+  }
 
   const publishingLane = contentFactory.beginPublish(request.laneId, request.destinationId);
   if (publishingLane.stage !== 'publishing') {
