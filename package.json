@@ -13,10 +13,11 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "check": "tsc --noEmit && npm run test:path-client && npm run test:factory-publish && npm run test:headquarters-editor",
+    "check": "tsc --noEmit && npm run test:path-client && npm run test:factory-publish && npm run test:headquarters-editor && npm run test:asset-storage",
     "test:path-client": "node --experimental-strip-types --test scripts/pathClient.contract.test.mjs",
     "test:factory-publish": "node --experimental-strip-types --test scripts/factoryPublish.contract.test.mjs",
     "test:headquarters-editor": "node --experimental-strip-types --test scripts/headquartersEditor.contract.test.mjs",
+    "test:asset-storage": "node --experimental-strip-types --test scripts/assetStorage.contract.test.mjs",
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
