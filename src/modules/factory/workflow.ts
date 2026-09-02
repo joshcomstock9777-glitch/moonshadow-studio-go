@@ -19,6 +19,7 @@ export interface PublishDestination {
 
 export interface ExternalPublishEvidence {
   destinationId: string;
+  externalChannelId: string;
   externalId: string;
   externalUrl?: string;
   confirmedAt: number;
@@ -153,12 +154,12 @@ export class ContentFactory {
       }
 
       const destination = this.destinations.get(destinationId);
-      if (!destination || destination.health !== 'connected') {
+      if (!destination || destination.health !== 'connected' || !destination.externalChannelId) {
         return {
           ...lane,
           destinationId,
           stage: 'blocked',
-          blocker: destination?.healthReason || 'Publish destination is not live-connected.',
+          blocker: destination?.healthReason || 'Publish destination is not live-connected with verified channel identity.',
         };
       }
 
@@ -181,6 +182,17 @@ export class ContentFactory {
       if (!lane.destinationId || lane.destinationId !== evidence.destinationId) {
         throw new Error('Publication evidence does not match the selected destination.');
       }
+
+      const destination = this.destinations.get(lane.destinationId);
+      if (
+        !destination ||
+        destination.health !== 'connected' ||
+        !destination.externalChannelId ||
+        destination.externalChannelId !== evidence.externalChannelId
+      ) {
+        throw new Error('Publication evidence channel does not match the verified destination channel.');
+      }
+
       if (!evidence.externalId || !evidence.confirmedAt) {
         throw new Error('External publication confirmation evidence is incomplete.');
       }
@@ -217,7 +229,7 @@ export class ContentFactory {
     const existing = this.lanes.get(laneId);
     if (!existing) throw new Error(`Unknown factory lane: ${laneId}`);
     const updated = { ...updater({ ...existing }), updatedAt: Date.now() };
-    this.lanes.set(laneId, updated);
+    this.lanes.set(lane.id, updated);
     return { ...updated };
   }
 }
