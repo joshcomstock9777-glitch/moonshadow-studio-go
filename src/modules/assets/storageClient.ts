@@ -6,6 +6,7 @@ export interface AssetStorageHealth {
   state: AssetStorageHealthState;
   checkedAt: number;
   backend?: string;
+  verificationId?: string;
   message?: string;
 }
 
@@ -54,21 +55,38 @@ export async function getAssetStorageHealth(): Promise<AssetStorageHealth> {
       connected?: unknown;
       backend?: unknown;
       message?: unknown;
+      writeReadVerified?: unknown;
+      verificationId?: unknown;
     };
+
+    const backend = typeof body.backend === 'string' ? body.backend : undefined;
+    const verificationId = typeof body.verificationId === 'string' && body.verificationId.trim()
+      ? body.verificationId.trim()
+      : undefined;
 
     if (body.connected !== true) {
       return {
         state: 'disconnected',
         checkedAt: Date.now(),
-        backend: typeof body.backend === 'string' ? body.backend : undefined,
+        backend,
         message: typeof body.message === 'string' ? body.message : 'Storage backend did not confirm connectivity.',
+      };
+    }
+
+    if (body.writeReadVerified !== true || !verificationId) {
+      return {
+        state: 'disconnected',
+        checkedAt: Date.now(),
+        backend,
+        message: 'Storage backend is reachable but has not supplied live write/read verification evidence.',
       };
     }
 
     return {
       state: 'connected',
       checkedAt: Date.now(),
-      backend: typeof body.backend === 'string' ? body.backend : undefined,
+      backend,
+      verificationId,
       message: typeof body.message === 'string' ? body.message : undefined,
     };
   } catch (error) {
