@@ -1,4 +1,5 @@
-import { assetLibrary, Asset } from '../assets/library';
+import { assetLibrary } from '../assets/library';
+import type { StudioAsset } from '../assets/library';
 import { persistAsset } from '../assets/storageClient';
 
 export interface ResearchReferenceInput {
@@ -18,7 +19,7 @@ export interface MarkupNoteInput {
 }
 
 export interface DurableToolArtifactResult {
-  asset: Asset;
+  asset: StudioAsset;
   confirmedAt: number;
 }
 
