@@ -32,9 +32,27 @@ test('rejects publication evidence from a different YouTube channel', () => {
         destinationId: 'youtube-primary',
         externalChannelId: 'channel-other',
         externalId: 'video-123',
+        externalUrl: 'https://www.youtube.com/watch?v=video-123',
         confirmedAt: Date.now(),
       }),
     /channel does not match the verified destination channel/,
+  );
+
+  assert.equal(factory.snapshot().lanes[0].stage, 'publishing');
+});
+
+test('rejects publication evidence that has no external YouTube URL', () => {
+  const { factory, laneId } = readyFactory();
+
+  assert.throws(
+    () =>
+      factory.confirmPublished(laneId, {
+        destinationId: 'youtube-primary',
+        externalChannelId: 'channel-primary',
+        externalId: 'video-123',
+        confirmedAt: Date.now(),
+      }),
+    /confirmation evidence is incomplete/,
   );
 
   assert.equal(factory.snapshot().lanes[0].stage, 'publishing');
@@ -53,6 +71,7 @@ test('accepts publication evidence only for the health-verified destination chan
 
   assert.equal(published.stage, 'published');
   assert.equal(published.publishEvidence?.externalChannelId, 'channel-primary');
+  assert.equal(published.publishEvidence?.externalUrl, 'https://www.youtube.com/watch?v=video-123');
 });
 
 test('will not begin publish when connected health lacks concrete channel identity', () => {

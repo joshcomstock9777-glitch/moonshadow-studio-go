@@ -21,7 +21,7 @@ export interface ExternalPublishEvidence {
   destinationId: string;
   externalChannelId: string;
   externalId: string;
-  externalUrl?: string;
+  externalUrl: string;
   confirmedAt: number;
 }
 
@@ -222,7 +222,7 @@ export class ContentFactory {
         throw new Error('Publication evidence channel does not match the verified destination channel.');
       }
 
-      if (!evidence.externalId || !evidence.confirmedAt) {
+      if (!evidence.externalId || !evidence.externalUrl || !evidence.confirmedAt) {
         throw new Error('External publication confirmation evidence is incomplete.');
       }
       return {

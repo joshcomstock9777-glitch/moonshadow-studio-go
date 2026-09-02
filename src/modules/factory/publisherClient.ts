@@ -131,6 +131,8 @@ export class PublisherClient {
       !body.channelId ||
       typeof body.externalId !== 'string' ||
       !body.externalId ||
+      typeof body.externalUrl !== 'string' ||
+      !body.externalUrl ||
       typeof body.confirmedAt !== 'number' ||
       !Number.isFinite(body.confirmedAt) ||
       body.confirmedAt <= 0
@@ -138,8 +140,7 @@ export class PublisherClient {
       throw new Error('Publisher response did not contain verified YouTube publication evidence.');
     }
 
-    const externalUrl = typeof body.externalUrl === 'string' && body.externalUrl ? body.externalUrl : undefined;
-    if (externalUrl && !isMatchingYouTubeVideoUrl(externalUrl, body.externalId)) {
+    if (!isMatchingYouTubeVideoUrl(body.externalUrl, body.externalId)) {
       throw new Error('Publisher response contained a YouTube URL that did not match the confirmed external video ID.');
     }
 
@@ -147,7 +148,7 @@ export class PublisherClient {
       destinationId: request.destinationId,
       externalChannelId: body.channelId,
       externalId: body.externalId,
-      externalUrl,
+      externalUrl: body.externalUrl,
       confirmedAt: body.confirmedAt,
     };
   }
