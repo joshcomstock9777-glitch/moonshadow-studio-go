@@ -126,10 +126,14 @@ export async function persistAsset(input: PersistAssetInput): Promise<DurableAss
   if (body.durable !== true) {
     throw new Error('Asset storage server did not confirm durable persistence.');
   }
-  if (typeof body.externalStorageId !== 'string' || body.externalStorageId.length === 0) {
+  if (typeof body.externalStorageId !== 'string' || body.externalStorageId.trim().length === 0) {
     throw new Error('Asset storage server omitted external storage evidence.');
   }
-  if (typeof body.confirmedAt !== 'number' || !Number.isFinite(body.confirmedAt)) {
+  if (
+    typeof body.confirmedAt !== 'number' ||
+    !Number.isFinite(body.confirmedAt) ||
+    body.confirmedAt <= 0
+  ) {
     throw new Error('Asset storage server omitted a valid confirmation timestamp.');
   }
 
@@ -137,7 +141,7 @@ export async function persistAsset(input: PersistAssetInput): Promise<DurableAss
 
   return {
     asset,
-    externalStorageId: body.externalStorageId,
+    externalStorageId: body.externalStorageId.trim(),
     confirmedAt: body.confirmedAt,
   };
 }
@@ -151,14 +155,26 @@ function validateDurableAsset(value: unknown, input: PersistAssetInput): StudioA
   if (typeof candidate.id !== 'string' || candidate.id.length === 0) {
     throw new Error('Asset storage server returned an asset without an ID.');
   }
+  if (candidate.name !== input.name) {
+    throw new Error('Asset storage server returned an asset that did not match the requested name.');
+  }
   if (candidate.kind !== input.kind) {
     throw new Error('Asset storage server returned a mismatched asset kind.');
   }
   if (candidate.storageState !== 'durable') {
     throw new Error('Asset storage server returned an asset without durable storage state.');
   }
+  if (input.mimeType && candidate.mimeType !== input.mimeType) {
+    throw new Error('Asset storage server returned a mismatched MIME type.');
+  }
   if (!candidate.provenance || !Array.isArray(candidate.provenance.parentAssetIds)) {
     throw new Error('Asset storage server returned incomplete provenance evidence.');
+  }
+  if (input.projectName && candidate.provenance.projectName !== input.projectName) {
+    throw new Error('Asset storage server returned provenance for a different project.');
+  }
+  if (!sameAssetIds(candidate.provenance.parentAssetIds, input.parentAssetIds)) {
+    throw new Error('Asset storage server returned provenance with mismatched parent assets.');
   }
   if (!candidate.metadata || typeof candidate.metadata !== 'object') {
     throw new Error('Asset storage server returned an asset without metadata evidence.');
@@ -171,6 +187,13 @@ function validateDurableAsset(value: unknown, input: PersistAssetInput): StudioA
   }
 
   return candidate as StudioAsset;
+}
+
+function sameAssetIds(actual: string[], expected: string[]): boolean {
+  if (actual.length !== expected.length) return false;
+  const actualSorted = [...actual].sort();
+  const expectedSorted = [...expected].sort();
+  return actualSorted.every((value, index) => value === expectedSorted[index]);
 }
 
 function trimTrailingSlash(value: string) {
