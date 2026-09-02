@@ -81,7 +81,7 @@ export default function FactoryTool({ editorRuntime }: FactoryToolProps) {
       setLane(result.lane);
       setMessage(result.lane.stage === 'approval'
         ? 'Renderer returned durable output evidence. Lane is awaiting creator approval.'
-        : `Render not confirmed. Renderer state: ${result.renderer.state}. ${result.renderer.reason || ''}`.trim());
+        : `Render not confirmed. Renderer state: ${result.renderer.state}. ${result.renderer.message || ''}`.trim());
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Render failed without confirmation.');
     } finally {
