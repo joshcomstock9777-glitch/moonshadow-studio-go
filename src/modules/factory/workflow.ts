@@ -45,6 +45,31 @@ export interface FactorySnapshot {
   destinations: PublishDestination[];
 }
 
+export function isMatchingYouTubePublicationUrl(externalUrl: string, externalId: string): boolean {
+  if (!externalUrl || !externalId) return false;
+
+  try {
+    const url = new URL(externalUrl);
+    if (url.protocol !== 'https:') return false;
+
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, '');
+    if (hostname === 'youtu.be') {
+      return url.pathname.split('/').filter(Boolean)[0] === externalId;
+    }
+
+    if (hostname !== 'youtube.com' && hostname !== 'm.youtube.com') return false;
+
+    if (url.pathname === '/watch') {
+      return url.searchParams.get('v') === externalId;
+    }
+
+    const segments = url.pathname.split('/').filter(Boolean);
+    return (segments[0] === 'shorts' || segments[0] === 'live') && segments[1] === externalId;
+  } catch {
+    return false;
+  }
+}
+
 export function enforceDistinctYouTubeChannels(
   destinations: PublishDestination[],
 ): PublishDestination[] {
@@ -225,6 +250,10 @@ export class ContentFactory {
       if (!evidence.externalId || !evidence.externalUrl || !evidence.confirmedAt) {
         throw new Error('External publication confirmation evidence is incomplete.');
       }
+      if (!isMatchingYouTubePublicationUrl(evidence.externalUrl, evidence.externalId)) {
+        throw new Error('External publication URL is not a matching HTTPS YouTube URL for the confirmed video ID.');
+      }
+
       return {
         ...lane,
         stage: 'published',

@@ -1,8 +1,9 @@
-import type {
-  ExternalPublishEvidence,
-  PublishDestination,
-  PublishHealth,
-} from './workflow';
+import {
+  isMatchingYouTubePublicationUrl,
+  type ExternalPublishEvidence,
+  type PublishDestination,
+  type PublishHealth,
+} from './workflow.ts';
 
 export interface PublisherClientConfig {
   baseUrl?: string;
@@ -149,7 +150,7 @@ export class PublisherClient {
       throw new Error('Publisher response did not contain verified YouTube publication evidence.');
     }
 
-    if (!isMatchingYouTubeVideoUrl(body.externalUrl, body.externalId)) {
+    if (!isMatchingYouTubePublicationUrl(body.externalUrl, body.externalId)) {
       throw new Error('Publisher response contained a YouTube URL that did not match the confirmed external video ID.');
     }
 
@@ -188,20 +189,6 @@ function healthReason(reason: unknown, status?: number): string {
       return 'YouTube channel verification failed for this destination.';
     default:
       return status ? `Publisher health check failed (${status}).` : 'Publisher did not provide live connection evidence.';
-  }
-}
-
-function isMatchingYouTubeVideoUrl(value: string, externalId: string): boolean {
-  try {
-    const url = new URL(value);
-    const host = url.hostname.toLowerCase();
-    if (host === 'youtu.be') return url.pathname.slice(1) === externalId;
-    if (host === 'youtube.com' || host === 'www.youtube.com' || host === 'm.youtube.com') {
-      return url.pathname === '/watch' && url.searchParams.get('v') === externalId;
-    }
-    return false;
-  } catch {
-    return false;
   }
 }
 
