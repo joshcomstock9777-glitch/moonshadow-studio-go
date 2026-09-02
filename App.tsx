@@ -156,6 +156,12 @@ export default function App() {
     await sendToAllie(text);
   }, [inputText, pathIsLoading, seats, transcript, addTranscript, orchestrator, sendToAllie, editorRuntime]);
 
+  const openMicTools = useCallback(() => {
+    setStudioSurface('editor');
+    setActiveToolTab('audio');
+    setToolState((current) => current === 'collapsed' ? 'half' : current);
+  }, []);
+
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor="#0a0a0b" />
@@ -201,7 +207,12 @@ export default function App() {
           >
             <Text style={[styles.surfaceText, studioSurface === 'assets' && styles.surfaceTextActive]}>{studioSurface === 'assets' ? 'Editor' : 'Assets'}</Text>
           </Pressable>
-          <Pressable style={styles.micBtn}>
+          <Pressable
+            style={[styles.micBtn, studioSurface === 'editor' && activeToolTab === 'audio' && toolState !== 'collapsed' && styles.micBtnActive]}
+            onPress={openMicTools}
+            accessibilityRole="button"
+            accessibilityLabel="Open microphone and audio controls"
+          >
             <Text style={styles.micIcon}>🎙</Text>
           </Pressable>
           <TextInput
@@ -232,6 +243,7 @@ const styles = StyleSheet.create({
   surfaceText: { color: '#d1d5db', fontSize: 10, fontWeight: '800' },
   surfaceTextActive: { color: '#000' },
   micBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#1c1c1f', justifyContent: 'center', alignItems: 'center' },
+  micBtnActive: { backgroundColor: '#374151' },
   micIcon: { fontSize: 18 },
   input: { flex: 1, height: 40, backgroundColor: '#1c1c1f', borderRadius: 20, paddingHorizontal: 16, color: '#e5e5e5', fontSize: 15 },
   sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f59e0b', justifyContent: 'center', alignItems: 'center' },
