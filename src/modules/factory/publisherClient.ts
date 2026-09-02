@@ -26,6 +26,9 @@ interface HealthResponse {
 
 interface PublishResponse {
   destinationId?: unknown;
+  platform?: unknown;
+  verified?: unknown;
+  channelId?: unknown;
   externalId?: unknown;
   externalUrl?: unknown;
   confirmedAt?: unknown;
@@ -122,19 +125,28 @@ export class PublisherClient {
     const body = (await response.json()) as PublishResponse;
     if (
       body.destinationId !== request.destinationId ||
+      body.platform !== 'youtube' ||
+      body.verified !== true ||
+      typeof body.channelId !== 'string' ||
+      !body.channelId ||
       typeof body.externalId !== 'string' ||
       !body.externalId ||
       typeof body.confirmedAt !== 'number' ||
       !Number.isFinite(body.confirmedAt) ||
       body.confirmedAt <= 0
     ) {
-      throw new Error('Publisher response did not contain valid external publication evidence.');
+      throw new Error('Publisher response did not contain verified YouTube publication evidence.');
+    }
+
+    const externalUrl = typeof body.externalUrl === 'string' && body.externalUrl ? body.externalUrl : undefined;
+    if (externalUrl && !isMatchingYouTubeVideoUrl(externalUrl, body.externalId)) {
+      throw new Error('Publisher response contained a YouTube URL that did not match the confirmed external video ID.');
     }
 
     return {
       destinationId: request.destinationId,
       externalId: body.externalId,
-      externalUrl: typeof body.externalUrl === 'string' && body.externalUrl ? body.externalUrl : undefined,
+      externalUrl,
       confirmedAt: body.confirmedAt,
     };
   }
@@ -165,6 +177,20 @@ function healthReason(reason: unknown, status?: number): string {
       return 'YouTube channel verification failed for this destination.';
     default:
       return status ? `Publisher health check failed (${status}).` : 'Publisher did not provide live connection evidence.';
+  }
+}
+
+function isMatchingYouTubeVideoUrl(value: string, externalId: string): boolean {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    if (host === 'youtu.be') return url.pathname.slice(1) === externalId;
+    if (host === 'youtube.com' || host === 'www.youtube.com' || host === 'm.youtube.com') {
+      return url.pathname === '/watch' && url.searchParams.get('v') === externalId;
+    }
+    return false;
+  } catch {
+    return false;
   }
 }
 
