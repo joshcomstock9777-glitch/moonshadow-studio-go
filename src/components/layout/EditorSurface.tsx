@@ -34,6 +34,7 @@ export default function EditorSurface({ runtime }: Props) {
   const playheadInsideSelected = !!selectedClip && state.currentTime > selectedClip.start && state.currentTime < selectedClip.start + selectedClip.duration;
   const progress = state.duration > 0 ? Math.min(100, (state.currentTime / state.duration) * 100) : 0;
   const disabled = busyAction !== null;
+  const hasUnprobed = state.media.some((clip) => !clip.durationKnown);
 
   const editButtons: Array<{ label: string; command: EditorCommand; enabled: boolean }> = [
     { label: 'Split', command: { type: 'split' }, enabled: playheadInsideSelected },
@@ -51,7 +52,10 @@ export default function EditorSurface({ runtime }: Props) {
           <Text style={styles.label}>EDITOR CORE</Text>
           <Text style={styles.project}>{state.projectName}</Text>
         </View>
-        <Text style={[styles.status, state.dirty && styles.dirty]}>{state.dirty ? 'UNSAVED' : 'SAVED'}</Text>
+        <View style={{ alignItems: 'flex-end', gap: 4 }}>
+          {hasUnprobed ? <Text style={styles.dirty}>DURATION UNPROBED</Text> : null}
+          <Text style={[styles.status, state.dirty && styles.dirty]}>{state.dirty ? 'UNSAVED' : 'SAVED'}</Text>
+        </View>
       </View>
 
       <View style={styles.actionRow}>
@@ -64,7 +68,7 @@ export default function EditorSurface({ runtime }: Props) {
         <Pressable disabled={disabled} onPress={() => void execute('Save', { type: 'save_project' })} style={[styles.primaryAction, disabled && styles.disabled]}>
           <Text style={styles.primaryActionText}>{busyAction === 'Save' ? 'Saving…' : 'Save'}</Text>
         </Pressable>
-        <Pressable disabled={disabled || state.dirty || state.media.length === 0} onPress={() => void execute('Export', { type: 'export_preview' })} style={[styles.primaryAction, (disabled || state.dirty || state.media.length === 0) && styles.disabled]}>
+        <Pressable disabled={disabled || state.dirty || state.media.length === 0 || hasUnprobed} onPress={() => void execute('Export', { type: 'export_preview' })} style={[styles.primaryAction, (disabled || state.dirty || state.media.length === 0 || hasUnprobed) && styles.disabled]}>
           <Text style={styles.primaryActionText}>{busyAction === 'Export' ? 'Exporting…' : 'Export'}</Text>
         </Pressable>
       </View>
@@ -81,7 +85,7 @@ export default function EditorSurface({ runtime }: Props) {
         {state.media.length === 0 ? (
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>No media loaded</Text>
-            <Text style={styles.emptyBody}>The real editor runtime is active. Import media from the Media tool shelf to begin editing.</Text>
+            <Text style={styles.emptyBody}>This surface tracks timeline state. It does not decode video bytes. Import a URI from Assets. Duration stays UNKNOWN until probed.</Text>
           </View>
         ) : (
           state.media.map((clip) => {
@@ -93,7 +97,7 @@ export default function EditorSurface({ runtime }: Props) {
                 onPress={() => void execute('Select clip', { type: 'select_clip', payload: { clipId: clip.id } })}
               >
                 <Text style={styles.clipName}>{clip.name}</Text>
-                <Text style={styles.clipMeta}>{clip.start.toFixed(1)}s · {clip.duration.toFixed(1)}s · {clip.muted ? 'MUTED' : `${Math.round(clip.volume * 100)}%`} · fades {(clip.fadeIn || 0).toFixed(1)}s/{(clip.fadeOut || 0).toFixed(1)}s</Text>
+                <Text style={styles.clipMeta}>{clip.start.toFixed(1)}s · {clip.durationKnown ? `${clip.duration.toFixed(1)}s` : 'DURATION UNKNOWN'} · {clip.muted ? 'MUTED' : `${Math.round(clip.volume * 100)}%`} · fades {(clip.fadeIn || 0).toFixed(1)}s/{(clip.fadeOut || 0).toFixed(1)}s</Text>
               </Pressable>
             );
           })
