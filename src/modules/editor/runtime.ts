@@ -10,6 +10,7 @@ export interface EditorMediaItem {
   name: string;
   start: number;
   duration: number;
+  durationKnown: boolean;
   volume: number;
   muted: boolean;
   fadeIn?: number;
@@ -128,6 +129,9 @@ export class EditorRuntime {
     switch (cmd.type) {
       case 'load_media': {
         const name = cmd.payload.name || cmd.payload.uri.split('/').pop() || 'Media';
+        const provided = cmd.payload.durationSeconds;
+        const durationKnown = typeof provided === 'number' && Number.isFinite(provided) && provided > 0;
+        const clipDuration = durationKnown ? provided : 0;
         const sourceAsset = assetLibrary.registerSourceUri(cmd.payload.uri, name);
         const clip: EditorMediaItem = {
           id: `clip-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -135,14 +139,17 @@ export class EditorRuntime {
           uri: cmd.payload.uri,
           name,
           start: this.state.duration,
-          duration: 5,
+          duration: clipDuration,
+          durationKnown,
           volume: 1,
           muted: false,
         };
         this.rememberEdit();
         const media = [...this.state.media, clip];
         const duration = this.timelineDuration(media);
-        const message = `Loaded ${clip.name}; source provenance recorded as URI reference only.`;
+        const message = durationKnown
+          ? `Loaded ${clip.name} (${clipDuration.toFixed(2)}s). URI reference only; bytes not copied.`
+          : `Loaded ${clip.name}; duration UNKNOWN — not probed. Not a 5-second default. URI reference only.`;
         this.update({ media, duration, selectedClipId: clip.id, dirty: true, lastMessage: message });
         return { ok: true, message };
       }
@@ -277,6 +284,9 @@ export class EditorRuntime {
       }
       case 'export_preview': {
         if (!this.state.media.length) return fail('Cannot export preview: no media is loaded.');
+        if (this.state.media.some((clip) => !clip.durationKnown)) {
+          return fail('Cannot export preview: one or more clips have unprobed duration.');
+        }
         if (this.state.dirty) return fail('Cannot export preview: save the current project state durably first.');
         const projectAsset = assetLibrary.list().find((asset) => asset.kind === 'project_state' && asset.storageState === 'durable' && asset.provenance.projectName === this.state.projectName);
         if (!projectAsset) return fail('Cannot export preview: no durable project-state asset exists for the current editor project.');
