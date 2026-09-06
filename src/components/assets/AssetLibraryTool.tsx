@@ -35,9 +35,10 @@ export default function AssetLibraryTool({ editorRuntime, onOpenEditor }: AssetL
       return;
     }
 
+    const durationSeconds = typeof asset.metadata?.durationSeconds === 'number' ? asset.metadata.durationSeconds : undefined;
     const result = await editorRuntime.execute({
       type: 'load_media',
-      payload: { uri: asset.uri, name: asset.name },
+      payload: { uri: asset.uri, name: asset.name, durationSeconds },
     });
     setMessage(result.ok ? `${asset.name} was loaded into the current editor timeline.` : result.message);
     refresh();
