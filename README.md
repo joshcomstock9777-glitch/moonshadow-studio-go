@@ -12,10 +12,13 @@ Mobile creative room — collaborative AI editing shell.
 - **Expert profiles module**: data-driven, uploadable later
 - **Editor adapter**: clean command interface (load_media, split, trim, undo, etc.) — real editor plugs in here
 - **Tool shelf**: Markup / Media / Browser / Notes / Audio / Text tabs (plugin slots)
+- **Honest load_media**: no fake 5-second duration; unprobed clips stay UNKNOWN and cannot export
 
 ### Not yet (by design)
+- Real editor core mounted (decoder / playback of actual bytes)
+- Real media duration probe on load
+- Live renderer URL (`EXPO_PUBLIC_RENDERER_API_URL`)
 - Real model calls (currently placeholder replies)
-- Real editor core mounted
 - Speech-to-text / TTS pipeline
 - User-uploaded profiles storage
 - Full media bin / markup canvas / notebook
@@ -35,4 +38,4 @@ src/
 Everything is modular and packable. No hard-coded API keys or personalities.
 
 ## Next
-Plug the real editor into EditorSurface + wire real model providers into the orchestrator.
+Duration probe on load_media, then wire the production renderer. Do not treat this shell as a finished NLE.
