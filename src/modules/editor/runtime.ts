@@ -1,7 +1,7 @@
-import { EditorCommand } from '../../types';
-import { assetLibrary } from '../assets/library';
-import { persistAsset } from '../assets/storageClient';
-import { renderProject } from '../factory/rendererClient';
+import type { EditorCommand } from '../../types.ts';
+import { assetLibrary } from '../assets/library.ts';
+import { persistAsset } from '../assets/storageClient.ts';
+import { renderProject } from '../factory/rendererClient.ts';
 
 export interface EditorMediaItem {
   id: string;
@@ -155,8 +155,7 @@ export class EditorRuntime {
       }
       case 'play':
         if (!this.state.media.length) return fail('Cannot play: no media is loaded.');
-        this.update({ isPlaying: true, lastMessage: 'Playing timeline.' });
-        return { ok: true, message: 'Playing timeline.' };
+        return fail('Cannot play: the real media decoder/playback engine is not connected. Timeline metadata is loaded, but no picture or sound is being played.');
       case 'pause':
         this.update({ isPlaying: false, lastMessage: 'Timeline paused.' });
         return { ok: true, message: 'Timeline paused.' };
@@ -303,9 +302,7 @@ export class EditorRuntime {
         }
       }
       case 'show_frame': {
-        const time = Math.max(0, Math.min(cmd.payload.time, this.state.duration));
-        this.update({ currentTime: time, isPlaying: false, lastMessage: `Showing frame at ${time.toFixed(1)}s.` });
-        return { ok: true, message: `Showing frame at ${time.toFixed(1)}s.` };
+        return fail('Cannot show frame: the real media decoder/preview engine is not connected.');
       }
       case 'undo': {
         const previous = this.undoStack.pop();
