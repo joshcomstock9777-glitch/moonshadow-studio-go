@@ -49,7 +49,7 @@ export default function EditorSurface({ runtime }: Props) {
     <View style={styles.container}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.label}>EDITOR CORE</Text>
+          <Text style={styles.label}>EDITOR SHELL — ENGINE NOT CONNECTED</Text>
           <Text style={styles.project}>{state.projectName}</Text>
         </View>
         <View style={{ alignItems: 'flex-end', gap: 4 }}>
