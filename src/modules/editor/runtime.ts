@@ -2,6 +2,7 @@ import type { EditorCommand } from '../../types.ts';
 import { assetLibrary } from '../assets/library.ts';
 import { persistAsset } from '../assets/storageClient.ts';
 import { renderProject } from '../factory/rendererClient.ts';
+import { probeMediaDuration } from '../media/durationProbe.ts';
 
 export interface EditorMediaItem {
   id: string;
@@ -129,9 +130,9 @@ export class EditorRuntime {
     switch (cmd.type) {
       case 'load_media': {
         const name = cmd.payload.name || cmd.payload.uri.split('/').pop() || 'Media';
-        const provided = cmd.payload.durationSeconds;
-        const durationKnown = typeof provided === 'number' && Number.isFinite(provided) && provided > 0;
-        const clipDuration = durationKnown ? provided : 0;
+        const probed = await probeMediaDuration(cmd.payload.uri);
+        const durationKnown = probed.durationKnown;
+        const clipDuration = probed.durationSeconds ?? 0;
         const sourceAsset = assetLibrary.registerSourceUri(cmd.payload.uri, name);
         const clip: EditorMediaItem = {
           id: `clip-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -148,8 +149,8 @@ export class EditorRuntime {
         const media = [...this.state.media, clip];
         const duration = this.timelineDuration(media);
         const message = durationKnown
-          ? `Loaded ${clip.name} (${clipDuration.toFixed(2)}s). URI reference only; bytes not copied.`
-          : `Loaded ${clip.name}; duration UNKNOWN — not probed. Not a 5-second default. URI reference only.`;
+          ? `Loaded ${clip.name} (${clipDuration.toFixed(2)}s, probed from media). URI reference only; bytes not copied.`
+          : `Loaded ${clip.name}; duration UNKNOWN — probe failed. No default or file-size estimate used. URI reference only.`;
         this.update({ media, duration, selectedClipId: clip.id, dirty: true, lastMessage: message });
         return { ok: true, message };
       }

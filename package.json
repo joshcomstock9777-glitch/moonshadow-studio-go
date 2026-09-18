@@ -13,7 +13,7 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "check": "tsc --noEmit && npm run test:path-client && npm run test:factory-publish && npm run test:headquarters-editor && npm run test:asset-storage && npm run test:renderer-health && npm run test:editor-runtime",
+    "check": "tsc --noEmit && npm run test:path-client && npm run test:factory-publish && npm run test:headquarters-editor && npm run test:asset-storage && npm run test:renderer-health && npm run test:editor-runtime && npm run test:duration-probe",
     "test:path-client": "node --experimental-strip-types --test scripts/pathClient.contract.test.mjs",
     "test:factory-publish": "node --experimental-strip-types --test scripts/factoryPublish.contract.test.mjs",
     "test:headquarters-editor": "node --experimental-strip-types --test scripts/headquartersEditor.contract.test.mjs",
@@ -23,7 +23,8 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "test:duration-probe": "node --experimental-strip-types --test scripts/durationProbe.contract.test.mjs"
   },
   "private": true
 }
