@@ -15,6 +15,7 @@ import EditorSurface from './src/components/layout/EditorSurface';
 import ToolShelf from './src/components/layout/ToolShelf';
 import FactoryTool from './src/components/factory/FactoryTool';
 import AssetLibraryTool from './src/components/assets/AssetLibraryTool';
+import ScriptTool from './src/components/scripts/ScriptTool';
 import { Seat, TopMode, ToolPanelState, TranscriptEntry } from './src/types';
 import { createOrchestrator } from './src/modules/orchestrator';
 import { createEditorAdapter } from './src/modules/editor/adapter';
@@ -34,7 +35,7 @@ const DEFAULT_SEATS: Seat[] = [
   { id: '4', name: 'Gemini', color: '#a855f7', status: 'offline', enabled: false, muted: false, isEditorCapable: false },
 ];
 
-type StudioSurface = 'editor' | 'factory' | 'assets';
+type StudioSurface = 'editor' | 'factory' | 'assets' | 'script';
 
 interface PendingEditorRequest {
   instruction: string;
@@ -165,7 +166,7 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor="#0a0a0b" />
-      <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <AIRoomStrip
           seats={seats}
           isExpanded={roomExpanded}
@@ -177,7 +178,9 @@ export default function App() {
         />
 
         <View style={styles.editorWrap}>
-          {studioSurface === 'factory' ? (
+          {studioSurface === 'script' ? (
+            <ScriptTool />
+          ) : studioSurface === 'factory' ? (
             <FactoryTool editorRuntime={editorRuntime} />
           ) : studioSurface === 'assets' ? (
             <AssetLibraryTool editorRuntime={editorRuntime} onOpenEditor={() => setStudioSurface('editor')} />
@@ -194,19 +197,14 @@ export default function App() {
           editorRuntime={editorRuntime}
         />}
 
-        <View style={styles.talkBar}>
-          <Pressable
-            style={[styles.surfaceBtn, studioSurface === 'factory' && styles.surfaceBtnActive]}
-            onPress={() => setStudioSurface((value) => value === 'factory' ? 'editor' : 'factory')}
-          >
-            <Text style={[styles.surfaceText, studioSurface === 'factory' && styles.surfaceTextActive]}>{studioSurface === 'factory' ? 'Editor' : 'Factory'}</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.surfaceBtn, studioSurface === 'assets' && styles.surfaceBtnActive]}
-            onPress={() => setStudioSurface((value) => value === 'assets' ? 'editor' : 'assets')}
-          >
-            <Text style={[styles.surfaceText, studioSurface === 'assets' && styles.surfaceTextActive]}>{studioSurface === 'assets' ? 'Editor' : 'Assets'}</Text>
-          </Pressable>
+        <View style={styles.surfaceBar}>
+          {(['editor', 'script', 'factory', 'assets'] as StudioSurface[]).map(surface => <Pressable
+            key={surface} accessibilityRole="button" style={[styles.surfaceBtn, studioSurface === surface && styles.surfaceBtnActive]}
+            onPress={() => setStudioSurface(surface)}><Text style={[styles.surfaceText, studioSurface === surface && styles.surfaceTextActive]}>
+            {surface === 'script' ? 'Script' : surface.charAt(0).toUpperCase() + surface.slice(1)}
+          </Text></Pressable>)}
+        </View>
+        {studioSurface !== 'script' && <View style={styles.talkBar}>
           <Pressable
             style={[styles.micBtn, studioSurface === 'editor' && activeToolTab === 'audio' && toolState !== 'collapsed' && styles.micBtnActive]}
             onPress={openMicTools}
@@ -227,7 +225,7 @@ export default function App() {
           <Pressable style={[styles.sendBtn, pathIsLoading && styles.sendBtnDisabled]} onPress={handleSend} disabled={pathIsLoading}>
             <Text style={styles.sendText}>↑</Text>
           </Pressable>
-        </View>
+        </View>}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -237,6 +235,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#0a0a0b' },
   root: { flex: 1 },
   editorWrap: { flex: 1 },
+  surfaceBar: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#111113' },
   talkBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#111113', borderTopWidth: 1, borderTopColor: '#1f1f23', gap: 8 },
   surfaceBtn: { height: 36, borderRadius: 10, borderWidth: 1, borderColor: '#4b5563', paddingHorizontal: 9, justifyContent: 'center', alignItems: 'center' },
   surfaceBtnActive: { backgroundColor: '#f59e0b', borderColor: '#f59e0b' },

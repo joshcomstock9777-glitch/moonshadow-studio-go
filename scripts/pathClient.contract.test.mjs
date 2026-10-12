@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildPathUrl,
   mapPathSessionResponse,
+  PathClient,
 } from "../src/services/pathClient.ts";
 
 test("builds the create and polling URLs under /api", () => {
@@ -15,6 +16,18 @@ test("builds the create and polling URLs under /api", () => {
     buildPathUrl(`${base}/api/`, "/sessions/session-123"),
     "https://moonshadow-path-proof.vercel.app/api/sessions/session-123"
   );
+});
+
+test('does not truncate script context after 700 characters', () => {
+  const client = new PathClient({ apiBaseUrl: 'https://example.test' });
+  const message = 'Scene '.repeat(500) + 'KEEP THIS ENDING';
+  assert.equal(client.validateRequest('allie', message).message, message);
+});
+
+test('rejects oversized UTF-8 requests instead of cutting off text', () => {
+  const client = new PathClient({ apiBaseUrl: 'https://example.test' });
+  assert.throws(() => client.validateRequest('allie', '🎬'.repeat(4000)), /16,000-byte/);
+  assert.equal(client.validateRequest('allie', '🎬'.repeat(3900)).message.length, 7800);
 });
 
 test("maps the live terminal response without changing evidence", () => {

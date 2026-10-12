@@ -125,12 +125,24 @@ export class PathClient {
   /**
    * Create a new session and send initial request to Path
    */
+  validateRequest(target: PathTarget, message: string): PathRequestPayload {
+    const payload = { target, message: message.trim() };
+    if (!payload.message) throw new Error('Message cannot be empty');
+    // Match Path's 16,000-byte body limit. Never silently cut off a script or revision.
+    let bodyBytes = 0;
+    for (const character of JSON.stringify(payload)) {
+      const point = character.codePointAt(0)!;
+      bodyBytes += point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4;
+    }
+    if (bodyBytes > 16_000) {
+      throw new Error('Request exceeds Path’s 16,000-byte limit. Select a shorter passage or context. Nothing was sent.');
+    }
+    return payload;
+  }
+
   async sendRequest(target: PathTarget, message: string): Promise<PathResult> {
     try {
-      const payload: PathRequestPayload = {
-        target,
-        message: message.trim().slice(0, 700),
-      };
+      const payload = this.validateRequest(target, message);
 
       const response = await fetch(this.pathUrl("/sessions"), {
         method: "POST",
